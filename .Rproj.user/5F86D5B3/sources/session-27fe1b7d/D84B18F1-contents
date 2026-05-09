@@ -1,8 +1,8 @@
 ---
 title: "Trabajo Práctico Final"
-subtitle: "Regresión Avanzada — Maestría en Explotación de Datos y Gestión del Conocimiento"
+subtitle: "Regresión Avanzada"
 author: "Universidad Austral"
-date: "Mayo 2026"
+date: "10 Mayo 2026"
 lang: es
 format:
   pdf:
@@ -844,3 +844,5 @@ tibble(
 - **VPN = 0.895:** Entre quienes el modelo predice como ingreso bajo, el **89.5% efectivamente tiene ingreso < 1.000**. Alta confiabilidad en la predicción negativa.
 
 **Conclusión general:** El modelo logístico presenta un desempeño **bueno y balanceado**. El AUC de 0.893 indica excelente discriminación. La elección del umbral de Youden (0.338) produjo un balance razonable entre sensibilidad y especificidad, con especial fortaleza para detectar correctamente a los individuos del grupo de ingresos altos.
+
+*El código completo de este análisis está disponible en el siguiente repositorio de GitHub:[Repositorio GitHub - ra_tp_final](https://github.com/matiasvillanueva/ra_tp_final)*
