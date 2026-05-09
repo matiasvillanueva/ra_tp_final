@@ -1,0 +1,746 @@
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+\PassOptionsToPackage{dvipsnames,svgnames,x11names}{xcolor}
+%
+\documentclass[
+  11pt,
+]{article}
+
+\usepackage{amsmath,amssymb}
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math}
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+\usepackage{lmodern}
+\ifPDFTeX\else  
+    % xetex/luatex font selection
+\fi
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+\usepackage{xcolor}
+\usepackage[margin=2.2cm]{geometry}
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\setcounter{secnumdepth}{5}
+% Make \paragraph and \subparagraph free-standing
+\ifx\paragraph\undefined\else
+  \let\oldparagraph\paragraph
+  \renewcommand{\paragraph}[1]{\oldparagraph{#1}\mbox{}}
+\fi
+\ifx\subparagraph\undefined\else
+  \let\oldsubparagraph\subparagraph
+  \renewcommand{\subparagraph}[1]{\oldsubparagraph{#1}\mbox{}}
+\fi
+
+
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}\usepackage{longtable,booktabs,array}
+\usepackage{calc} % for calculating minipage widths
+% Correct order of tables after \paragraph or \subparagraph
+\usepackage{etoolbox}
+\makeatletter
+\patchcmd\longtable{\par}{\if@noskipsec\mbox{}\fi\par}{}{}
+\makeatother
+% Allow footnotes in longtable head/foot
+\IfFileExists{footnotehyper.sty}{\usepackage{footnotehyper}}{\usepackage{footnote}}
+\makesavenoteenv{longtable}
+\usepackage{graphicx}
+\makeatletter
+\def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}
+\def\maxheight{\ifdim\Gin@nat@height>\textheight\textheight\else\Gin@nat@height\fi}
+\makeatother
+% Scale images if necessary, so that they will not overflow the page
+% margins by default, and it is still possible to overwrite the defaults
+% using explicit options in \includegraphics[width, height, ...]{}
+\setkeys{Gin}{width=\maxwidth,height=\maxheight,keepaspectratio}
+% Set default figure placement to htbp
+\makeatletter
+\def\fps@figure{htbp}
+\makeatother
+
+\makeatletter
+\@ifpackageloaded{caption}{}{\usepackage{caption}}
+\AtBeginDocument{%
+\ifdefined\contentsname
+  \renewcommand*\contentsname{Tabla de contenidos}
+\else
+  \newcommand\contentsname{Tabla de contenidos}
+\fi
+\ifdefined\listfigurename
+  \renewcommand*\listfigurename{Listado de Figuras}
+\else
+  \newcommand\listfigurename{Listado de Figuras}
+\fi
+\ifdefined\listtablename
+  \renewcommand*\listtablename{Listado de Tablas}
+\else
+  \newcommand\listtablename{Listado de Tablas}
+\fi
+\ifdefined\figurename
+  \renewcommand*\figurename{Figura}
+\else
+  \newcommand\figurename{Figura}
+\fi
+\ifdefined\tablename
+  \renewcommand*\tablename{Tabla}
+\else
+  \newcommand\tablename{Tabla}
+\fi
+}
+\@ifpackageloaded{float}{}{\usepackage{float}}
+\floatstyle{ruled}
+\@ifundefined{c@chapter}{\newfloat{codelisting}{h}{lop}}{\newfloat{codelisting}{h}{lop}[chapter]}
+\floatname{codelisting}{Listado}
+\newcommand*\listoflistings{\listof{codelisting}{Listado de Listados}}
+\makeatother
+\makeatletter
+\makeatother
+\makeatletter
+\@ifpackageloaded{caption}{}{\usepackage{caption}}
+\@ifpackageloaded{subcaption}{}{\usepackage{subcaption}}
+\makeatother
+\ifLuaTeX
+\usepackage[bidi=basic]{babel}
+\else
+\usepackage[bidi=default]{babel}
+\fi
+\babelprovide[main,import]{spanish}
+% get rid of language-specific shorthands (see #6817):
+\let\LanguageShortHands\languageshorthands
+\def\languageshorthands#1{}
+\ifLuaTeX
+  \usepackage{selnolig}  % disable illegal ligatures
+\fi
+\usepackage{bookmark}
+
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{same} % disable monospaced font for URLs
+\hypersetup{
+  pdftitle={Trabajo Práctico Final - Regresión Avanzada},
+  pdfauthor={Matias Villanueva},
+  pdflang={es},
+  colorlinks=true,
+  linkcolor={blue},
+  filecolor={Maroon},
+  citecolor={Blue},
+  urlcolor={Blue},
+  pdfcreator={LaTeX via pandoc}}
+
+\title{Trabajo Práctico Final - Regresión Avanzada}
+\author{Matias Villanueva}
+\date{}
+
+\begin{document}
+\maketitle
+
+\{r\} \#\textbar{} label: setup \#\textbar{} include: false
+
+suppressPackageStartupMessages(\{ library(readxl) library(tidyverse)
+library(MASS) library(car) library(lmtest) library(glmnet)
+library(caret) library(pROC) library(knitr) \})
+
+knitr::opts\_chunk\$set( echo = TRUE, warning = FALSE, message = FALSE,
+fig.width = 8, fig.height = 5, fig.align = ``center'' )
+
+\section{--------------------------}\label{section}
+
+\section{1) CARGA Y LIMPIEZA}\label{carga-y-limpieza}
+
+\section{--------------------------}\label{section-1}
+
+df \textless- read\_excel(``eph.xlsx'')
+
+df \textless- df \%\textgreater\% mutate( ant\_laboral =
+as.character(ant\_laboral), ant\_laboral = ifelse(is.na(ant\_laboral),
+``No informado'', ant\_laboral),
+
+\begin{verbatim}
+sexo = as.factor(sexo),
+est_civil = as.factor(est_civil),
+region = as.factor(region),
+educ_cat = as.factor(educ_cat),
+ant_laboral = as.factor(ant_laboral),
+formal = as.factor(formal),
+
+edad = as.numeric(edad),
+horas_trabajo = as.numeric(horas_trabajo),
+ingreso_ocup = as.numeric(ingreso_ocup),
+ingreso_hogar = as.numeric(ingreso_hogar),
+ingreso_per_capita = as.numeric(ingreso_per_capita)
+\end{verbatim}
+
+) \%\textgreater\% drop\_na( sexo, edad, est\_civil, region, educ\_cat,
+ant\_laboral, formal, horas\_trabajo, ingreso\_ocup, ingreso\_hogar,
+ingreso\_per\_capita )
+
+\section{--------------------------}\label{section-2}
+
+\section{2) FUNCIONES AUXILIARES}\label{funciones-auxiliares}
+
+\section{--------------------------}\label{section-3}
+
+press \textless- function(modelo) \{ e \textless- resid(modelo) h
+\textless- hatvalues(modelo) sum((e / (1 - h))\^{}2) \}
+
+cme \textless- function(modelo) \{ mean(resid(modelo)\^{}2) \}
+
+rmse \textless- function(obs, pred) \{ sqrt(mean((obs - pred)\^{}2)) \}
+
+mae \textless- function(obs, pred) \{ mean(abs(obs - pred)) \}
+
+mse \textless- function(obs, pred) \{ mean((obs - pred)\^{}2) \}
+
+\section{==========================================================}\label{section-4}
+
+\section{CONSIGNA I - REGRESION
+LINEAL}\label{consigna-i---regresion-lineal}
+
+\section{==========================================================}\label{section-5}
+
+set.seed(123)
+
+n \textless- nrow(df) idx\_train \textless- sample(seq\_len(n), size =
+round(0.70 * n))
+
+train \textless- df{[}idx\_train, {]} test \textless- df{[}-idx\_train,
+{]}
+
+mod1 \textless- lm( ingreso\_ocup \textasciitilde{} sexo + edad +
+educ\_cat + formal + horas\_trabajo + ant\_laboral, data = train )
+
+mod2 \textless- lm( ingreso\_ocup \textasciitilde{} sexo + edad +
+est\_civil + region + educ\_cat + ant\_laboral + formal + horas\_trabajo
++ ingreso\_hogar, data = train )
+
+mod3\_base \textless- lm( ingreso\_ocup \textasciitilde{} sexo + edad +
+est\_civil + region + educ\_cat + ant\_laboral + formal + horas\_trabajo
++ ingreso\_hogar, data = train )
+
+mod3 \textless- stepAIC(mod3\_base, direction = ``both'', trace = FALSE)
+
+comparacion\_mco \textless- tibble( Modelo = c(``Modelo 1'', ``Modelo
+2'', ``Modelo 3''), CME = c(cme(mod1), cme(mod2), cme(mod3)), PRESS =
+c(press(mod1), press(mod2), press(mod3)), AIC = c(AIC(mod1), AIC(mod2),
+AIC(mod3)), BIC = c(BIC(mod1), BIC(mod2), BIC(mod3)) ) \%\textgreater\%
+mutate( rank\_CME = rank(CME, ties.method = ``first''), rank\_PRESS =
+rank(PRESS, ties.method = ``first''), rank\_AIC = rank(AIC, ties.method
+= ``first''), rank\_BIC = rank(BIC, ties.method = ``first''),
+rank\_total = rank\_CME + rank\_PRESS + rank\_AIC + rank\_BIC )
+\%\textgreater\% arrange(rank\_total)
+
+modelo\_ganador\_nombre \textless- comparacion\_mco\$Modelo{[}1{]}
+modelo\_ganador \textless- switch( modelo\_ganador\_nombre, ``Modelo 1''
+= mod1, ``Modelo 2'' = mod2, ``Modelo 3'' = mod3 )
+
+resid\_ganador \textless- resid(modelo\_ganador) set.seed(123)
+resid\_para\_shapiro \textless- if (length(resid\_ganador)
+\textgreater{} 5000) sample(resid\_ganador, 5000) else resid\_ganador
+shapiro\_res \textless- shapiro.test(resid\_para\_shapiro) bp\_res
+\textless- bptest(modelo\_ganador) vif\_res \textless-
+vif(modelo\_ganador)
+
+res\_std \textless- rstandard(modelo\_ganador) res\_stud \textless-
+rstudent(modelo\_ganador) lev \textless- hatvalues(modelo\_ganador)
+cooks \textless- cooks.distance(modelo\_ganador)
+
+umbral\_leverage \textless- 2 * length(coef(modelo\_ganador)) /
+nrow(train) umbral\_cook \textless- 4 / nrow(train)
+
+outliers\_std \textless- which(abs(res\_std) \textgreater{} 3)
+outliers\_stud \textless- which(abs(res\_stud) \textgreater{} 3)
+altos\_leverage \textless- which(lev \textgreater{} umbral\_leverage)
+influyentes\_cook \textless- which(cooks \textgreater{} umbral\_cook)
+
+coef\_tab \textless- summary(modelo\_ganador)\$coefficients
+coef\_significativos \textless- coef\_tab{[}coef\_tab{[},
+``Pr(\textgreater\textbar t\textbar)''{]} \textless{} 0.05, , drop =
+FALSE{]}
+
+comparacion\_mco\_red \textless- comparacion\_mco \%\textgreater\%
+select(Modelo, CME, PRESS, AIC, BIC)
+
+\section{==========================================================}\label{section-6}
+
+\section{CONSIGNA II - REGULARIZACION Y
+PREDICCION}\label{consigna-ii---regularizacion-y-prediccion}
+
+\section{==========================================================}\label{section-7}
+
+form\_ganador \textless- formula(modelo\_ganador)
+
+x\_train \textless- model.matrix(form\_ganador, data = train){[}, -1{]}
+y\_train \textless- train\$ingreso\_ocup
+
+x\_test \textless- model.matrix(form\_ganador, data = test){[}, -1{]}
+y\_test \textless- test\$ingreso\_ocup
+
+pred\_mco \textless- predict(modelo\_ganador, newdata = test)
+
+set.seed(123) cv\_ridge \textless- cv.glmnet( x\_train, y\_train, alpha
+= 0, nfolds = 10, standardize = TRUE )
+
+ridge\_mod \textless- glmnet( x\_train, y\_train, alpha = 0, lambda =
+cv\_ridge\$lambda.min, standardize = TRUE )
+
+set.seed(123) cv\_lasso \textless- cv.glmnet( x\_train, y\_train, alpha
+= 1, nfolds = 10, standardize = TRUE )
+
+lasso\_mod \textless- glmnet( x\_train, y\_train, alpha = 1, lambda =
+cv\_lasso\$lambda.min, standardize = TRUE )
+
+pred\_ridge \textless- as.numeric(predict(ridge\_mod, s =
+cv\_ridge\(lambda.min, newx = x_test))
+pred_lasso <- as.numeric(predict(lasso_mod, s = cv_lasso\)lambda.min,
+newx = x\_test))
+
+resultados\_pred \textless- tibble( Modelo = c(``MCO'', ``Ridge'',
+``Lasso''), RMSE = c(rmse(y\_test, pred\_mco), rmse(y\_test,
+pred\_ridge), rmse(y\_test, pred\_lasso)), MAE = c(mae(y\_test,
+pred\_mco), mae(y\_test, pred\_ridge), mae(y\_test, pred\_lasso)), MSE =
+c(mse(y\_test, pred\_mco), mse(y\_test, pred\_ridge), mse(y\_test,
+pred\_lasso)) ) \%\textgreater\% arrange(RMSE)
+
+modelo\_predictivo\_ganador \textless- resultados\_pred\$Modelo{[}1{]}
+
+\section{==========================================================}\label{section-8}
+
+\section{CONSIGNA III - REGRESION
+LOGISTICA}\label{consigna-iii---regresion-logistica}
+
+\section{==========================================================}\label{section-9}
+
+df\_log \textless- df \%\textgreater\% mutate( ingreso\_bin =
+ifelse(ingreso\_ocup \textless{} 1000, 0, 1), ingreso\_bin =
+factor(ingreso\_bin, levels = c(0, 1)) )
+
+set.seed(123) idx\_train\_log \textless-
+createDataPartition(df\_log\$ingreso\_bin, p = 0.7, list = FALSE)
+
+train\_log \textless- df\_log{[}idx\_train\_log, {]} test\_log
+\textless- df\_log{[}-idx\_train\_log, {]}
+
+predictores\_ganador \textless- attr(terms(modelo\_ganador),
+``term.labels'') form\_log \textless- reformulate(predictores\_ganador,
+response = ``ingreso\_bin'')
+
+mod\_log \textless- glm( form\_log, data = train\_log, family =
+binomial(link = ``logit'') )
+
+coefs\_log \textless- coef(mod\_log) se\_log \textless-
+sqrt(diag(vcov(mod\_log)))
+
+or\_tab \textless- cbind( OR = exp(coefs\_log), IC\_inf = exp(coefs\_log
+- 1.96 * se\_log), IC\_sup = exp(coefs\_log + 1.96 * se\_log), p\_value
+= summary(mod\_log)\$coefficients{[}, 4{]} )
+
+prob\_train \textless- predict(mod\_log, newdata = train\_log, type =
+``response'') y\_train\_num \textless-
+as.numeric(as.character(train\_log\$ingreso\_bin))
+
+roc\_obj \textless- roc(y\_train\_num, prob\_train, quiet = TRUE)
+auc\_val \textless- as.numeric(auc(roc\_obj)) cutoff\_opt \textless-
+as.numeric(coords( roc\_obj, x = ``best'', best.method = ``youden'', ret
+= ``threshold'' ))
+
+prob\_test \textless- predict(mod\_log, newdata = test\_log, type =
+``response'')
+
+pred\_class \textless- ifelse(prob\_test \textgreater= cutoff\_opt,
+``1'', ``0'') pred\_class \textless- factor(pred\_class, levels =
+c(``0'', ``1''))
+
+real\_class \textless- factor(as.character(test\_log\$ingreso\_bin),
+levels = c(``0'', ``1''))
+
+cm \textless- confusionMatrix( data = pred\_class, reference =
+real\_class, positive = ``1'' )
+
+metricas\_clasif \textless- tibble( Medida = c(``Accuracy'',
+``Precision\_global'', ``Sensibilidad'', ``Especificidad'', ``VPP'',
+``VPN''), Valor = c( unname(cm\(overall["Accuracy"]),
+    unname(cm\)overall{[}``Accuracy''{]}),
+unname(cm\(byClass["Sensitivity"]),
+    unname(cm\)byClass{[}``Specificity''{]}),
+unname(cm\(byClass["Pos Pred Value"]),
+    unname(cm\)byClass{[}``Neg Pred Value''{]}) ) )
+
+Trabajo Práctico Final
+
+Este reporte responde cada una de las consignas del trabajo práctico. En
+cada apartado se muestra primero el código utilizado y luego la
+interpretación de los resultados obtenidos.
+
+Consigna I: Regresión Lineal
+
+I.1) Partición entrenamiento / prueba
+
+\{r\} set.seed(123)
+
+n \textless- nrow(df) idx\_train \textless- sample(seq\_len(n), size =
+round(0.70 * n))
+
+train \textless- df{[}idx\_train, {]} test \textless- df{[}-idx\_train,
+{]}
+
+dim(train) dim(test)
+
+Se dividió aleatoriamente la base en un bloque de entrenamiento del 70\%
+y un bloque de prueba del 30\%, utilizando set.seed(123) para garantizar
+la reproducibilidad. El conjunto de entrenamiento quedó conformado por r
+nrow(train) observaciones y el conjunto de prueba por r nrow(test)
+observaciones. Esta partición cumple con lo solicitado en la consigna.
+
+I.2) Ajuste de tres modelos MCO
+
+\{r\} mod1 \textless- lm( ingreso\_ocup \textasciitilde{} sexo + edad +
+educ\_cat + formal + horas\_trabajo + ant\_laboral, data = train )
+
+mod2 \textless- lm( ingreso\_ocup \textasciitilde{} sexo + edad +
+est\_civil + region + educ\_cat + ant\_laboral + formal + horas\_trabajo
++ ingreso\_hogar, data = train )
+
+mod3\_base \textless- lm( ingreso\_ocup \textasciitilde{} sexo + edad +
+est\_civil + region + educ\_cat + ant\_laboral + formal + horas\_trabajo
++ ingreso\_hogar, data = train )
+
+mod3 \textless- stepAIC(mod3\_base, direction = ``both'', trace = FALSE)
+
+formula(mod1) formula(mod2) formula(mod3)
+
+Se ajustaron tres modelos de regresión lineal múltiple por MCO con
+ingreso\_ocup como variable respuesta.
+
+El Modelo 1 fue definido con un criterio sustantivo y parsimonioso,
+incluyendo variables individuales directamente vinculadas al ingreso
+laboral: sexo, edad, nivel educativo, formalidad, horas trabajadas y
+antigüedad laboral.
+
+El Modelo 2 amplía el enfoque anterior incorporando estado civil, región
+e ingreso del hogar, con el objetivo de capturar mejor las diferencias
+sociodemográficas y del contexto económico del hogar.
+
+El Modelo 3 surge de aplicar un procedimiento automático de selección
+bidireccional mediante stepAIC() sobre el modelo amplio. De esta forma,
+se cumplen tres estrategias de construcción distintas: criterio propio,
+modelo ampliado y selección automática por AIC.
+
+I.3) Comparación entre modelos
+
+\{r\} comparacion\_mco\_red
+
+\{r\} comparacion\_mco \%\textgreater\% ggplot(aes(x = Modelo, y = CME,
+fill = Modelo)) + geom\_col(show.legend = FALSE) + labs(title =
+``Comparación de CME'', x = ``Modelo'', y = ``CME'') + theme\_minimal()
+
+\{r\} comparacion\_mco \%\textgreater\% ggplot(aes(x = Modelo, y =
+PRESS, fill = Modelo)) + geom\_col(show.legend = FALSE) + labs(title =
+``Comparación de PRESS'', x = ``Modelo'', y = ``PRESS'') +
+theme\_minimal()
+
+\{r\} comparacion\_mco \%\textgreater\% ggplot(aes(x = Modelo, y = AIC,
+fill = Modelo)) + geom\_col(show.legend = FALSE) + labs(title =
+``Comparación de AIC'', x = ``Modelo'', y = ``AIC'') + theme\_minimal()
+
+\{r\} comparacion\_mco \%\textgreater\% ggplot(aes(x = Modelo, y = BIC,
+fill = Modelo)) + geom\_col(show.legend = FALSE) + labs(title =
+``Comparación de BIC'', x = ``Modelo'', y = ``BIC'') + theme\_minimal()
+
+La comparación mediante CME, PRESS, AIC y BIC muestra que el modelo
+ganador es r modelo\_ganador\_nombre. En este caso, el procedimiento
+automático no mejoró al modelo amplio, por lo que el modelo seleccionado
+coincide con la formulación más completa considerada. En consecuencia,
+el modelo ganador queda definido por:
+
+r paste(deparse(formula(modelo\_ganador)), collapse = '' ``)
+
+I.4) Análisis de residuos, supuestos y observaciones influyentes
+
+\{r\} par(mfrow = c(2, 2)) plot(modelo\_ganador) par(mfrow = c(1, 1))
+
+\{r\} shapiro\_res bp\_res
+
+\{r\} vif\_res
+
+\{r\} cat(``Cantidad de outliers según \textbar rstandard\textbar{}
+\textgreater{} 3:'', length(outliers\_std), ``\n'') cat(``Cantidad de
+outliers según \textbar rstudent\textbar{} \textgreater{} 3 :'',
+length(outliers\_stud), ``\n'') cat(``Cantidad de casos con leverage
+alto :'', length(altos\_leverage), ``\n'') cat(``Cantidad de casos
+influyentes por Cook :'', length(influyentes\_cook), ``\n'')
+
+\{r\} plot(cooks, type = ``h'', main = ``Cook's distance'') abline(h =
+umbral\_cook, col = ``red'')
+
+\{r\} plot(lev, type = ``h'', main = ``Leverage'', ylab = ``Hat
+values'') abline(h = umbral\_leverage, col = ``red'')
+
+Sobre el modelo ganador se realizó un análisis de residuos para evaluar
+cumplimiento de supuestos, colinealidad y presencia de casos atípicos o
+influyentes.
+
+El test de Shapiro-Wilk arrojó un valor p de r
+format(shapiro\_res\$p.value, scientific = TRUE), por lo que se rechaza
+la hipótesis nula de normalidad estricta de los residuos. Dado el gran
+tamaño muestral, este resultado no sorprende y debe interpretarse junto
+con los gráficos diagnósticos.
+
+El test de Breusch-Pagan presentó un valor p de r
+format(bp\_res\$p.value, scientific = TRUE), lo que indica evidencia de
+heterocedasticidad. Por lo tanto, la varianza de los residuos no se
+mantiene constante.
+
+En relación con la colinealidad, los valores de VIF/GVIF ajustados no
+muestran problemas severos, por lo que no se detecta multicolinealidad
+preocupante entre los predictores.
+
+Además, se identificaron r length(outliers\_std) observaciones con
+residuos estandarizados mayores a 3 en valor absoluto, r
+length(altos\_leverage) casos con leverage alto y r
+length(influyentes\_cook) observaciones influyentes según la distancia
+de Cook. En síntesis, el modelo presenta capacidad explicativa
+razonable, aunque no cumple estrictamente todos los supuestos clásicos.
+
+I.5) Interpretación de coeficientes y significación estadística
+
+\{r\} coef\_tab
+
+\{r\} coef\_significativos
+
+\{r\} coef\_df \textless- as.data.frame(coef\_tab) \%\textgreater\%
+rownames\_to\_column(``Termino'') \%\textgreater\% filter(Termino !=
+``(Intercept)'') \%\textgreater\% mutate(Significativo =
+\texttt{Pr(\textgreater{}\textbar{}t\textbar{})} \textless{} 0.05)
+
+ggplot(coef\_df, aes(x = reorder(Termino, Estimate), y = Estimate, fill
+= Significativo)) + geom\_col() + coord\_flip() + labs( title =
+``Coeficientes estimados del modelo ganador'', x = ``Predictor'', y =
+``Coeficiente'' ) + theme\_minimal()
+
+El test t indica que varios predictores resultan estadísticamente
+significativos al 5\%. En términos sustantivos, el modelo sugiere que la
+formalidad laboral, las horas trabajadas, el ingreso del hogar y los
+mayores niveles educativos se asocian positivamente con el ingreso
+laboral mensual. También aparecen diferencias por sexo, edad, estado
+civil, región y antigüedad laboral.
+
+Por ejemplo, el coeficiente estimado para formalSi mide cuánto cambia el
+ingreso mensual esperado, en promedio, al pasar de una ocupación
+informal a una formal, manteniendo constantes las demás variables. Del
+mismo modo, el coeficiente de horas\_trabajo representa el cambio
+esperado en el ingreso por cada hora adicional trabajada durante la
+semana anterior. La significación estadística observada refuerza que
+estas variables tienen un papel importante en la explicación de
+ingreso\_ocup.
+
+Consigna II: Regularización y Predicción
+
+II.1) Ajuste Ridge
+
+\{r\} cv\_ridge\(lambda.min
+cv_ridge\)lambda.1se coef(ridge\_mod)
+
+\{r\} plot(cv\_ridge, main = ``Validación cruzada - Ridge'') abline(v =
+log(cv\_ridge\$lambda.min), col = ``red'', lty = 2)
+
+Se ajustó el modelo ganador mediante Ridge, seleccionando el parámetro
+de penalización por validación cruzada de 10 folds. El valor óptimo
+obtenido fue r round(cv\_ridge\$lambda.min, 4).
+
+En comparación con MCO, Ridge conserva todos los predictores, pero
+contrae los coeficientes hacia cero. Esto reduce varianza y puede
+mejorar la capacidad predictiva fuera de muestra, especialmente cuando
+existe cierta redundancia entre variables explicativas.
+
+II.2) Ajuste Lasso
+
+\{r\} cv\_lasso\(lambda.min
+cv_lasso\)lambda.1se coef(lasso\_mod) sum(coef(lasso\_mod) != 0)
+
+\{r\} plot(cv\_lasso, main = ``Validación cruzada - Lasso'') abline(v =
+log(cv\_lasso\$lambda.min), col = ``red'', lty = 2)
+
+Se ajustó el modelo ganador mediante Lasso, también con validación
+cruzada de 10 folds. El valor óptimo de penalización fue r
+round(cv\_lasso\$lambda.min, 4).
+
+A diferencia de Ridge, Lasso no solo contrae coeficientes, sino que
+además puede anular algunos y generar un modelo más parsimonioso. En
+este caso, el número de coeficientes no nulos, incluyendo el intercepto,
+fue r sum(coef(lasso\_mod) != 0).
+
+II.3) Comparación predictiva en test
+
+\{r\} resultados\_pred
+
+\{r\} resultados\_pred \%\textgreater\% pivot\_longer(cols = c(RMSE,
+MAE, MSE), names\_to = ``Metrica'', values\_to = ``Valor'')
+\%\textgreater\% ggplot(aes(x = Modelo, y = Valor, fill = Modelo)) +
+geom\_col(show.legend = FALSE) + facet\_wrap(\textasciitilde{} Metrica,
+scales = ``free\_y'') + labs( title = ``Desempeño predictivo en test'',
+x = ``Modelo'', y = ``Error'' ) + theme\_minimal()
+
+\{r\} pred\_best \textless- switch( modelo\_predictivo\_ganador, ``MCO''
+= pred\_mco, ``Ridge'' = pred\_ridge, ``Lasso'' = pred\_lasso )
+
+ggplot(tibble(Observado = y\_test, Predicho = pred\_best), aes(x =
+Observado, y = Predicho)) + geom\_point(alpha = 0.4) +
+geom\_abline(slope = 1, intercept = 0, color = ``red'') + labs( title =
+paste(``Observado vs Predicho -'', modelo\_predictivo\_ganador), x =
+``Ingreso observado'', y = ``Ingreso predicho'' ) + theme\_minimal()
+
+La capacidad predictiva se evaluó sobre el conjunto de prueba mediante
+RMSE, MAE y MSE. El modelo con mejor desempeño fue r
+modelo\_predictivo\_ganador, ya que obtuvo el menor error de predicción.
+
+En consecuencia, si el objetivo principal fuera la predicción fuera de
+muestra, este sería el modelo más conveniente. En cambio, si el interés
+principal fuera la interpretación económica de los efectos, el modelo
+MCO seguiría siendo útil por la lectura directa de sus coeficientes y la
+disponibilidad de tests clásicos.
+
+Consigna III: Regresión Logística
+
+III.1) Definición de la variable binaria
+
+\{r\} table(df\_log\(ingreso_bin)
+prop.table(table(df_log\)ingreso\_bin))
+
+\{r\} ggplot(df\_log, aes(x = ingreso\_bin, fill = ingreso\_bin)) +
+geom\_bar(show.legend = FALSE) + labs( title = ``Distribución de la
+variable binaria ingreso\_bin'', x = ``ingreso\_bin'', y =
+``Frecuencia'' ) + theme\_minimal()
+
+Se definió la variable binaria ingreso\_bin, tomando valor 0 cuando
+ingreso\_ocup \textless{} 1000 y valor 1 cuando ingreso\_ocup
+\textgreater= 1000. La distribución observada muestra que la clase 0
+representa r round(100 *
+prop.table(table(df\_log\(ingreso_bin))[1], 2)% de los casos, mientras que la clase 1 concentra r round(100 * prop.table(table(df_log
+\)ingreso\_bin)){[}2{]}, 2)\%.
+
+III.2) Partición balanceada con createDataPartition()
+
+\{r\} prop.table(table(train\_log\(ingreso_bin))
+prop.table(table(test_log\)ingreso\_bin))
+
+Se utilizó createDataPartition() del paquete caret para construir
+particiones balanceadas de entrenamiento y prueba. La proporción de
+éxitos quedó preservada en ambos subconjuntos, lo cual cumple
+exactamente con lo solicitado en la consigna.
+
+III.3) Ajuste del modelo logístico e interpretación de odds ratios
+
+\{r\} summary(mod\_log)
+
+\{r\} round(or\_tab, 4)
+
+\{r\} or\_df \textless- as.data.frame(or\_tab) \%\textgreater\%
+rownames\_to\_column(``Termino'') \%\textgreater\% filter(Termino !=
+``(Intercept)'', p\_value \textless{} 0.05)
+
+ggplot(or\_df, aes(x = reorder(Termino, OR), y = OR)) + geom\_col() +
+geom\_hline(yintercept = 1, linetype = ``dashed'') + coord\_flip() +
+labs( title = ``Odds ratios significativas del modelo logístico'', x =
+``Predictor'', y = ``Odds ratio'' ) + theme\_minimal()
+
+Se ajustó un modelo de regresión logística binaria con las mismas
+variables explicativas que el modelo ganador de la Consigna I. A partir
+de los coeficientes estimados se calcularon las razones de odds.
+
+Una odds ratio mayor que 1 indica que el predictor incrementa las
+chances de pertenecer al grupo con ingreso\_ocup \textgreater= 1000,
+mientras que una odds ratio menor que 1 indica una disminución de esas
+chances. Entre las variables significativas, la formalidad laboral, la
+educación superior, algunas regiones y una mayor cantidad de horas
+trabajadas aparecen asociadas a una mayor probabilidad de superar el
+umbral de ingreso fijado.
+
+III.4) Curva ROC y punto de corte óptimo
+
+\{r\} plot(roc\_obj, col = ``blue'', main = ``Curva ROC - Modelo
+Logístico'')
+
+\{r\} auc\_val cutoff\_opt
+
+\{r\} prob\_train\_df \textless- tibble( prob = prob\_train, real =
+train\_log\$ingreso\_bin )
+
+ggplot(prob\_train\_df, aes(x = prob, fill = real)) +
+geom\_histogram(position = ``identity'', alpha = 0.5, bins = 30) +
+geom\_vline(xintercept = cutoff\_opt, linetype = ``dashed'', color =
+``red'') + labs( title = ``Distribución de probabilidades predichas'', x
+= ``Probabilidad estimada'', y = ``Frecuencia'', fill = ``Clase real'' )
++ theme\_minimal()
+
+El área bajo la curva ROC fue r round(auc\_val, 4), lo cual indica una
+muy buena capacidad discriminante del modelo. El punto de corte óptimo
+obtenido mediante el criterio de Youden fue r round(cutoff\_opt, 4).
+
+Esto implica que, para clasificar individuos en el conjunto de prueba,
+resulta más conveniente usar ese umbral que el valor arbitrario 0.5, ya
+que permite equilibrar mejor sensibilidad y especificidad.
+
+III.5) Clasificación final y matriz de confusión
+
+\{r\} cm\$table
+
+\{r\} metricas\_clasif
+
+\{r\} cm\_df \textless- as.data.frame(cm\$table) colnames(cm\_df)
+\textless- c(``Predicho'', ``Real'', ``Frecuencia'')
+
+ggplot(cm\_df, aes(x = Real, y = Predicho, fill = Frecuencia)) +
+geom\_tile() + geom\_text(aes(label = Frecuencia), color = ``white'',
+size = 5) + labs( title = ``Matriz de confusión'', x = ``Clase real'', y
+= ``Clase predicha'' ) + theme\_minimal()
+
+Utilizando el punto de corte óptimo obtenido por ROC, se clasificaron
+los individuos del conjunto de prueba y se construyó la matriz de
+confusión correspondiente.
+
+La accuracy observada fue r
+round(metricas\_clasif\(Valor[metricas_clasif\)Medida ==
+``Accuracy''{]}, 4), la sensibilidad fue r
+round(metricas\_clasif\(Valor[metricas_clasif\)Medida ==
+``Sensibilidad''{]}, 4), la especificidad fue r
+round(metricas\_clasif\(Valor[metricas_clasif\)Medida ==
+``Especificidad''{]}, 4), el VPP fue r
+round(metricas\_clasif\(Valor[metricas_clasif\)Medida == ``VPP''{]}, 4)
+y el VPN fue r round(metricas\_clasif\(Valor[metricas_clasif\)Medida ==
+``VPN''{]}, 4).
+
+En conjunto, estos resultados indican que el modelo logístico presenta
+un desempeño bueno y relativamente balanceado para distinguir entre
+individuos con ingresos laborales por debajo y por encima del umbral
+considerado.
+
+Observación final
+
+Para compilar este archivo a PDF, el archivo eph.xlsx debe estar ubicado
+en la misma carpeta que este .qmd. Si se desea reducir la extensión
+final del PDF, se puede ocultar alguno de los gráficos diagnósticos
+menos importantes cambiando opciones de chunk como echo: false o
+fig.show: `hide'.
+
+
+
+\end{document}

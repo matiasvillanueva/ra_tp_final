@@ -1,0 +1,593 @@
+---
+title: "Trabajo Práctico Final"
+subtitle: "Regresión Avanzada — Maestría en Explotación de Datos y Gestión del Conocimiento"
+author: "Universidad Austral"
+date: "Mayo 2026"
+lang: es
+format:
+  pdf:
+    documentclass: article
+    papersize: a4
+    fontsize: 11pt
+    geometry:
+      - top=2.5cm
+      - bottom=2.5cm
+      - left=2.5cm
+      - right=2.5cm
+    toc: true
+    toc-title: "Índice"
+    number-sections: true
+    colorlinks: true
+    highlight-style: tango
+    fig-pos: "H"
+    fig-width: 6.5
+    fig-height: 4
+    keep-tex: false
+execute:
+  echo: true
+  warning: false
+  message: false
+  eval: false
+---
+
+```{r setup, include=FALSE}
+# Este bloque carga los paquetes necesarios
+suppressPackageStartupMessages({
+  library(readxl)
+  library(tidyverse)
+  library(MASS)
+  library(car)
+  library(lmtest)
+  library(glmnet)
+  library(caret)
+  library(pROC)
+  library(knitr)
+  library(kableExtra)
+})
+```
+
+---
+
+# Descripción del dataset
+
+La **Encuesta Permanente de Hogares (EPH)** es un relevamiento continuo realizado por el INDEC que produce información sobre características sociodemográficas y condiciones de empleo e ingreso de la población urbana argentina. En este trabajo se utiliza un subconjunto correspondiente a personas **ocupadas como empleados u obreros** durante el 3er trimestre de 2025, con ingreso declarado por ocupación principal.
+
+| Variable | Descripción |
+|---|---|
+| `sexo` | Sexo del encuestado (Hombre / Mujer) |
+| `edad` | Edad en años cumplidos |
+| `est_civil` | Estado civil |
+| `region` | Región del país |
+| `educ_cat` | Mayor nivel educativo completado |
+| `ant_laboral` | Antigüedad laboral en la ocupación principal |
+| `formal` | Si la ocupación está registrada formalmente |
+| `horas_trabajo` | Horas trabajadas la semana anterior |
+| `ingreso_ocup` | Ingreso mensual habitual por ocupación principal (miles de $) |
+| `ingreso_hogar` | Ingreso mensual total del hogar (miles de $) |
+| `ingreso_per_capita` | Ingreso per cápita del hogar (miles de $) |
+
+: Diccionario de variables {tbl-colwidths="[30,70]"}
+
+---
+
+# Consigna I: Regresión Lineal
+
+## Carga, limpieza y partición (I.1)
+
+```{r carga-datos}
+df <- read_excel("eph.xlsx")
+
+df <- df %>%
+  mutate(
+    ant_laboral = as.character(ant_laboral),
+    ant_laboral = ifelse(is.na(ant_laboral), "No informado", ant_laboral),
+    sexo        = as.factor(sexo),
+    est_civil   = as.factor(est_civil),
+    region      = as.factor(region),
+    educ_cat    = as.factor(educ_cat),
+    ant_laboral = as.factor(ant_laboral),
+    formal      = as.factor(formal),
+    edad              = as.numeric(edad),
+    horas_trabajo     = as.numeric(horas_trabajo),
+    ingreso_ocup      = as.numeric(ingreso_ocup),
+    ingreso_hogar     = as.numeric(ingreso_hogar),
+    ingreso_per_capita = as.numeric(ingreso_per_capita)
+  ) %>%
+  drop_na(sexo, edad, est_civil, region, educ_cat, ant_laboral,
+          formal, horas_trabajo, ingreso_ocup, ingreso_hogar, ingreso_per_capita)
+```
+
+Se dividió aleatoriamente el conjunto de datos en **bloque de entrenamiento (70%)** y **bloque de prueba (30%)**, fijando `set.seed(123)` para garantizar reproducibilidad.
+
+```{r particion}
+set.seed(123)
+n         <- nrow(df)
+idx_train <- sample(seq_len(n), size = round(0.70 * n))
+train     <- df[idx_train, ]
+test      <- df[-idx_train, ]
+```
+
+La partición resultó en **7.146 observaciones de entrenamiento** y **3.062 de prueba**.
+
+## Ajuste de tres modelos MCO (I.2)
+
+Se ajustaron tres modelos de Regresión Lineal Múltiple tomando `ingreso_ocup` como variable respuesta:
+
+**Modelo 1 — Criterio sustantivo/parsimonia:** incluye predictores directamente vinculados al ingreso laboral individual: características personales (sexo, edad, educación) y laborales (formalidad, horas, antigüedad).
+
+**Modelo 2 — Modelo amplio:** extiende el anterior incorporando variables demográficas (estado civil), territoriales (región) y de contexto del hogar (ingreso\_hogar).
+
+**Modelo 3 — Selección automática (stepAIC):** aplica selección bidireccional sobre el espacio del Modelo 2. En este caso el procedimiento no eliminó variables, resultando idéntico al Modelo 2.
+
+```{r modelos-mco}
+# Funciones auxiliares
+press <- function(m) { e <- resid(m); h <- hatvalues(m); sum((e/(1-h))^2) }
+cme   <- function(m) { mean(resid(m)^2) }
+
+# Modelo 1: criterio sustantivo
+mod1 <- lm(
+  ingreso_ocup ~ sexo + edad + educ_cat + formal + horas_trabajo + ant_laboral,
+  data = train
+)
+
+# Modelo 2: amplio
+mod2 <- lm(
+  ingreso_ocup ~ sexo + edad + est_civil + region + educ_cat + ant_laboral +
+                 formal + horas_trabajo + ingreso_hogar,
+  data = train
+)
+
+# Modelo 3: stepAIC sobre el modelo amplio
+mod3 <- stepAIC(mod2, direction = "both", trace = FALSE)
+```
+
+## Comparación y selección del modelo ganador (I.3)
+
+Se compararon los modelos mediante CME, PRESS, AIC y BIC. Menores valores indican mejor desempeño en todos los casos.
+
+| Modelo | CME | PRESS | AIC | BIC |
+|---|---|---|---|---|
+| Modelo 1 | 339.758 | 2.435.976.445 | 111.321 | 111.424 |
+| **Modelo 2** | **260.857** | **1.980.852.790** | **109.452** | **109.624** |
+| Modelo 3 | 260.857 | 1.980.852.790 | 109.452 | 109.624 |
+
+: Comparación de métricas de performance — entrenamiento
+
+```{r comparacion-mco}
+comparacion_mco <- tibble(
+  Modelo = c("Modelo 1", "Modelo 2", "Modelo 3"),
+  CME    = c(cme(mod1), cme(mod2), cme(mod3)),
+  PRESS  = c(press(mod1), press(mod2), press(mod3)),
+  AIC    = c(AIC(mod1), AIC(mod2), AIC(mod3)),
+  BIC    = c(BIC(mod1), BIC(mod2), BIC(mod3))
+)
+
+comparacion_mco %>%
+  mutate(across(where(is.numeric), ~round(., 0))) %>%
+  kable(caption = "Comparación de modelos MCO") %>%
+  kable_styling(latex_options = c("hold_position", "striped"))
+```
+
+**Modelo ganador: Modelo 2.** Superó al Modelo 1 en todas las métricas. El Modelo 3 (stepAIC) coincidió exactamente con el Modelo 2, confirmando que el modelo amplio ya era óptimo según AIC/BIC. La fórmula del modelo ganador es:
+
+$$\text{ingreso\_ocup} \sim \text{sexo} + \text{edad} + \text{est\_civil} + \text{region} + \text{educ\_cat} + \text{ant\_laboral} + \text{formal} + \text{horas\_trabajo} + \text{ingreso\_hogar}$$
+
+## Análisis de residuos y supuestos (I.4)
+
+```{r modelo-ganador}
+modelo_ganador <- mod2
+```
+
+### Linealidad y homocedasticidad
+
+```{r plot-residuos, fig.cap="Residuos vs. valores ajustados del modelo ganador"}
+plot(fitted(modelo_ganador), resid(modelo_ganador),
+     xlab = "Valores ajustados", ylab = "Residuos",
+     main = "Residuos vs. Ajustados", pch = 16, alpha = 0.4)
+abline(h = 0, col = "red", lwd = 2)
+```
+
+El gráfico residuos vs. ajustados muestra un patrón con forma de embudo, evidenciando **heterocedasticidad**: la varianza de los errores no es constante sino que aumenta con los valores ajustados.
+
+### Normalidad
+
+```{r qqplot, fig.cap="QQ-plot de los residuos del modelo ganador"}
+qqnorm(resid(modelo_ganador), main = "QQ-plot de residuos")
+qqline(resid(modelo_ganador), col = "red")
+```
+
+```{r test-normalidad}
+resid_ganador <- resid(modelo_ganador)
+set.seed(123)
+resid_muestra <- sample(resid_ganador, min(5000, length(resid_ganador)))
+shapiro.test(resid_muestra)
+```
+
+El test de Shapiro-Wilk arrojó **W = 0.732, p-value < 2.2e-16**, rechazando la hipótesis nula de normalidad. Las colas del QQ-plot confirman desviaciones marcadas, especialmente en la cola derecha. Dado el tamaño muestral (n > 7.000), los tests de hipótesis son aproximadamente válidos por el Teorema Central del Límite, pero los intervalos de predicción deben interpretarse con cautela.
+
+### Homocedasticidad (test formal)
+
+```{r test-bp}
+bptest(modelo_ganador)
+```
+
+El test de **Breusch-Pagan** arrojó **BP = 2938.1, p-value < 2.2e-16**, confirmando la heterocedasticidad detectada visualmente. Los errores estándar y los p-values reportados por MCO pueden estar sesgados en este contexto.
+
+### Multicolinealidad
+
+```{r vif}
+vif_res <- vif(modelo_ganador)
+print(round(vif_res, 3))
+```
+
+Los valores GVIF^(1/(2·Df)) resultaron bajos para todas las variables (máximo ≈ 1.27 para `edad`). **No se detectó multicolinealidad severa.**
+
+| Variable | GVIF ajustado |
+|---|---|
+| sexo | 1.142 |
+| edad | 1.272 |
+| est\_civil | 1.050 |
+| region | 1.008 |
+| educ\_cat | 1.050 |
+| ant\_laboral | 1.062 |
+| formal | 1.237 |
+| horas\_trabajo | 1.087 |
+| ingreso\_hogar | 1.065 |
+
+: VIF ajustados del modelo ganador (todos < 5: sin problema de colinealidad) {tbl-colwidths="[60,40]"}
+
+### Observaciones atípicas e influyentes
+
+```{r diagnostico-obs}
+res_std  <- rstandard(modelo_ganador)
+res_stud <- rstudent(modelo_ganador)
+lev      <- hatvalues(modelo_ganador)
+cooks    <- cooks.distance(modelo_ganador)
+
+p <- length(coef(modelo_ganador))
+n_train <- nrow(train)
+
+umbral_leverage <- 2 * p / n_train
+umbral_cook     <- 4 / n_train
+
+cat("Outliers |rstandard| > 3: ", sum(abs(res_std) > 3), "\n")
+cat("Outliers |rstudent|  > 3: ", sum(abs(res_stud) > 3), "\n")
+cat("Leverage alto           : ", sum(lev > umbral_leverage), "\n")
+cat("Influyentes por Cook    : ", sum(cooks > umbral_cook), "\n")
+```
+
+| Criterio | Cantidad de casos |
+|---|---|
+| \|residuo estandarizado\| > 3 | 110 |
+| \|residuo estudentizado\| > 3 | 110 |
+| Leverage alto (> 2p/n) | 395 |
+| Distancia de Cook > 4/n | 219 |
+
+: Resumen de observaciones problemáticas
+
+Se detectaron **110 outliers en Y** y **219 casos influyentes** según Cook. La presencia de estos casos es consistente con la heterocedasticidad observada y es esperable en datos de ingresos, donde hay una cola derecha de salarios muy altos que generan residuos grandes.
+
+## Interpretación de coeficientes y tests t (I.5)
+
+```{r coefs}
+summary(modelo_ganador)$coefficients %>%
+  round(4) %>%
+  kable(caption = "Coeficientes estimados del modelo ganador") %>%
+  kable_styling(latex_options = c("hold_position", "striped", "scale_down"))
+
+cat("\nIntervalos de confianza al 95%:\n")
+confint(modelo_ganador) %>%
+  round(2) %>%
+  kable(caption = "Intervalos de confianza al 95%") %>%
+  kable_styling(latex_options = c("hold_position", "striped"))
+```
+
+La interpretación de cada coeficiente se realiza **manteniendo constantes todas las demás variables del modelo** (efecto parcial). Los predictores significativos al 5% son:
+
+**`sexoMujer` (β = −158.16, p < 0.001):** Las mujeres presentan, en promedio, un ingreso mensual por ocupación principal **$158.160 menor** que los varones en condiciones equivalentes. La brecha salarial de género es estadísticamente muy significativa.
+
+**`edad` (β = 3.84, p < 0.001):** Por cada año adicional de edad, el ingreso mensual esperado aumenta en promedio **$3.840**, reflejando la acumulación de experiencia laboral.
+
+**`est_civilsoltero` (β = −66.83, p < 0.001):** Ser soltero se asocia con un ingreso esperado **$66.830 menor** respecto de la categoría de referencia del estado civil.
+
+**`region`:** Respecto de la región de referencia (Cuyo):
+
+- Gran Buenos Aires: +$110.990 (p < 0.001)
+- Noroeste: −$117.110 (p < 0.001) ← menor ingreso relativo
+- Noreste: −$60.730 (p = 0.039)
+- Pampeana: +$55.980 (p = 0.013)
+- **Patagonia: +$283.600 (p < 0.001)** ← mayor ingreso relativo
+
+**`educ_cat`:** Respecto del nivel educativo de referencia:
+
+- Secundario completo: +$113.570 (p = 0.010)
+- **Superior: +$385.490 (p < 0.001)** ← efecto positivo muy fuerte
+
+**`ant_laboral`:** Respecto de la categoría de referencia:
+
+- Más de 5 años: +$76.750 (p = 0.025) — mayor antigüedad, mayor ingreso
+- Menos de 1 mes: −$245.180 (p < 0.001) — menor ingreso en inicios laborales
+
+**`formalSi` (β = +235.87, p < 0.001):** Tener una ocupación formal está asociado con un ingreso mensual **$235.870 mayor** en promedio. Es uno de los efectos más fuertes del modelo.
+
+**`horas_trabajo` (β = 9.45, p < 0.001):** Por cada hora adicional trabajada en la semana previa, el ingreso mensual esperado aumenta en **$9.450**.
+
+**`ingreso_hogar` (β = 0.1299, p < 0.001):** A mayor ingreso total del hogar, mayor ingreso individual. El efecto marginal es positivo aunque pequeño.
+
+En conjunto, **sexo, formalidad, educación, región y antigüedad** son los predictores con mayor impacto sobre el ingreso laboral.
+
+---
+
+# Consigna II: Regularización y Predicción
+
+## Ridge con selección de λ por validación cruzada (II.1)
+
+```{r ridge}
+form_ganador <- formula(modelo_ganador)
+x_train <- model.matrix(form_ganador, data = train)[, -1]
+y_train <- train$ingreso_ocup
+x_test  <- model.matrix(form_ganador, data = test)[, -1]
+y_test  <- test$ingreso_ocup
+
+set.seed(123)
+cv_ridge  <- cv.glmnet(x_train, y_train, alpha = 0, nfolds = 10, standardize = TRUE)
+ridge_mod <- glmnet(x_train, y_train, alpha = 0,
+                    lambda = cv_ridge$lambda.min, standardize = TRUE)
+
+cat("Lambda óptimo Ridge (lambda.min):", round(cv_ridge$lambda.min, 4), "\n")
+cat("Lambda 1se Ridge                :", round(cv_ridge$lambda.1se, 4), "\n")
+```
+
+```{r plot-cv-ridge, fig.cap="Validación cruzada para selección de λ en Ridge"}
+plot(cv_ridge, main = "Error de CV vs. log(λ) — Ridge")
+abline(v = log(cv_ridge$lambda.min), col = "red", lty = 2)
+```
+
+El **λ óptimo seleccionado por CV fue λ = 96.35**. Con este valor Ridge conserva todas las variables del modelo (no lleva ningún coeficiente a cero) pero los **contrae hacia cero**, reduciendo la varianza de las estimaciones. Los coeficientes mantienen el mismo signo que en MCO pero con menor magnitud — efecto esperado del shrinkage.
+
+**Comparación Ridge vs. MCO:** Ridge introduce sesgo a cambio de menor varianza, lo que puede mejorar la capacidad predictiva fuera de muestra, especialmente cuando hay multicolinealidad moderada o alta dimensionalidad. En este caso, los VIF eran bajos, por lo que la mejora predictiva de Ridge puede ser modesta.
+
+## Lasso con selección de λ por validación cruzada (II.2)
+
+```{r lasso}
+set.seed(123)
+cv_lasso  <- cv.glmnet(x_train, y_train, alpha = 1, nfolds = 10, standardize = TRUE)
+lasso_mod <- glmnet(x_train, y_train, alpha = 1,
+                    lambda = cv_lasso$lambda.min, standardize = TRUE)
+
+cat("Lambda óptimo Lasso (lambda.min):", round(cv_lasso$lambda.min, 4), "\n")
+cat("Lambda 1se Lasso                :", round(cv_lasso$lambda.1se, 4), "\n")
+cat("Coeficientes no nulos (incl. intercepto):", sum(coef(lasso_mod) != 0), "\n")
+```
+
+```{r plot-cv-lasso, fig.cap="Validación cruzada para selección de λ en Lasso"}
+plot(cv_lasso, main = "Error de CV vs. log(λ) — Lasso")
+abline(v = log(cv_lasso$lambda.min), col = "red", lty = 2)
+```
+
+El **λ óptimo seleccionado fue λ = 0.746**. A diferencia de Ridge, Lasso **llevó algunos coeficientes exactamente a cero**, actuando como método de selección de variables. El modelo resultante retuvo **22 coeficientes no nulos** (incluido el intercepto), anulando variables como `educ_catPrimario` y `ant_laboral1 a 5 años`. Lasso produce un modelo **más parsimonioso** que MCO.
+
+**Comparación Lasso vs. MCO:** Lasso combina estimación y selección de variables. Las variables eliminadas tienen efecto marginal pequeño en el contexto del modelo. Los coeficientes retenidos tienen menor magnitud que en MCO por el efecto shrinkage.
+
+## Comparación predictiva en el conjunto de prueba (II.3)
+
+```{r prediccion-test}
+rmse <- function(obs, pred) sqrt(mean((obs - pred)^2))
+mae  <- function(obs, pred) mean(abs(obs - pred))
+mse  <- function(obs, pred) mean((obs - pred)^2)
+
+pred_mco   <- predict(modelo_ganador, newdata = test)
+pred_ridge <- as.numeric(predict(ridge_mod, s = cv_ridge$lambda.min, newx = x_test))
+pred_lasso <- as.numeric(predict(lasso_mod, s = cv_lasso$lambda.min, newx = x_test))
+
+resultados_pred <- tibble(
+  Modelo = c("MCO", "Ridge", "Lasso"),
+  RMSE   = c(rmse(y_test, pred_mco), rmse(y_test, pred_ridge), rmse(y_test, pred_lasso)),
+  MAE    = c(mae(y_test, pred_mco),  mae(y_test, pred_ridge),  mae(y_test, pred_lasso)),
+  MSE    = c(mse(y_test, pred_mco),  mse(y_test, pred_ridge),  mse(y_test, pred_lasso))
+) %>% arrange(RMSE)
+
+resultados_pred %>%
+  mutate(across(where(is.numeric), ~round(., 1))) %>%
+  kable(caption = "Performance predictiva en el conjunto de prueba") %>%
+  kable_styling(latex_options = c("hold_position", "striped"))
+```
+
+| Modelo | RMSE | MAE | MSE |
+|---|---|---|---|
+| **Ridge** | **491** | **292** | **241.261** |
+| MCO | 494 | 292 | 243.717 |
+| Lasso | 494 | 292 | 243.782 |
+
+: Performance predictiva en el conjunto de prueba (miles de pesos)
+
+**El modelo con mejor capacidad predictiva fue Ridge**, con el menor RMSE (491) y MSE (241.261). Las diferencias entre los tres modelos son pequeñas — todos predicen el ingreso con un error típico de aproximadamente **$491.000** en datos no vistos.
+
+```{r plot-obs-pred, fig.cap="Valores observados vs. predichos — Modelo Ridge (test)"}
+ggplot(tibble(Observado = y_test, Predicho = pred_ridge),
+       aes(x = Observado, y = Predicho)) +
+  geom_point(alpha = 0.3, size = 0.8) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linewidth = 1) +
+  labs(title = "Observado vs. Predicho — Ridge (conjunto de prueba)",
+       x = "Ingreso observado (miles de $)",
+       y = "Ingreso predicho (miles de $)") +
+  theme_minimal()
+```
+
+**Conclusión:** Para fines **predictivos**, Ridge es preferible. Para fines **inferenciales e interpretativos**, MCO sigue siendo el modelo más adecuado por la claridad de sus coeficientes, tests t e intervalos de confianza. Lasso es útil cuando se busca simultáneamente selección de variables y predicción, aunque en este caso la mejora fue marginal respecto de Ridge.
+
+---
+
+# Consigna III: Regresión Logística
+
+## Definición de la variable binaria (III.1)
+
+Se definió la variable respuesta binaria:
+
+$$Y_i = \begin{cases} 0 & \text{si } \text{ingreso\_ocup}_i < 1.000 \\ 1 & \text{si } \text{ingreso\_ocup}_i \geq 1.000 \end{cases}$$
+
+```{r var-binaria}
+df_log <- df %>%
+  mutate(
+    ingreso_bin = factor(ifelse(ingreso_ocup < 1000, 0, 1), levels = c(0, 1))
+  )
+
+prop.table(table(df_log$ingreso_bin)) %>% round(4)
+```
+
+La distribución resultó:
+
+- **Clase 0 (ingreso < 1.000):** 6.668 casos (65.32%)
+- **Clase 1 (ingreso ≥ 1.000):** 3.540 casos (34.68%)
+
+Las clases están **desbalanceadas** — hay aproximadamente el doble de personas con ingresos bajos. El uso de `createDataPartition()` garantiza preservar esta proporción en ambas particiones.
+
+## Partición balanceada (III.2)
+
+```{r particion-log}
+set.seed(123)
+idx_train_log <- createDataPartition(df_log$ingreso_bin, p = 0.7, list = FALSE)
+train_log     <- df_log[idx_train_log, ]
+test_log      <- df_log[-idx_train_log, ]
+
+cat("Proporción clase 1 en train:", round(mean(train_log$ingreso_bin == 1), 4), "\n")
+cat("Proporción clase 1 en test :", round(mean(test_log$ingreso_bin  == 1), 4), "\n")
+```
+
+La proporción de éxitos quedó prácticamente idéntica en ambas particiones (**34.68% en train, 34.68% en test**), confirmando la correcta estratificación.
+
+## Modelo logístico e interpretación de odds ratios (III.3)
+
+Se ajustó un modelo de regresión logística binaria con las mismas variables explicativas que el modelo ganador de la Consigna I.
+
+```{r modelo-logistico}
+predictores_ganador <- attr(terms(modelo_ganador), "term.labels")
+form_log <- reformulate(predictores_ganador, response = "ingreso_bin")
+
+mod_log <- glm(form_log, data = train_log, family = binomial(link = "logit"))
+summary(mod_log)
+```
+
+El modelo convergió correctamente (aunque emitió un warning de probabilidades extremas cercanas a 0 o 1 en algunas observaciones, lo cual es esperable con ingresos muy altos o muy bajos).
+
+```{r odds-ratios}
+coefs_log <- coef(mod_log)
+se_log    <- sqrt(diag(vcov(mod_log)))
+
+or_tab <- cbind(
+  OR     = exp(coefs_log),
+  IC_inf = exp(coefs_log - 1.96 * se_log),
+  IC_sup = exp(coefs_log + 1.96 * se_log),
+  p_val  = summary(mod_log)$coefficients[, 4]
+) %>%
+  round(4) %>%
+  as.data.frame() %>%
+  filter(p_val < 0.05)
+
+or_tab %>%
+  kable(caption = "Odds ratios e IC al 95% — predictores significativos al 5%") %>%
+  kable_styling(latex_options = c("hold_position", "striped", "scale_down"))
+```
+
+**Interpretación de las odds ratios significativas al 5%** (efecto sobre las odds de tener ingreso ≥ 1.000, manteniendo constantes las demás variables):
+
+**`sexoMujer` (OR = 0.46):** Las mujeres tienen odds de percibir ingresos altos **54% menores** que los varones en iguales condiciones. La brecha de género es muy marcada.
+
+**`edad` (OR = 1.02):** Cada año adicional de edad incrementa las odds de ingreso alto en aproximadamente un **2%**.
+
+**`est_civilsoltero` (OR = 0.72):** Los solteros tienen odds un **28% menores** que la categoría de referencia.
+
+**`region`:**
+
+- GBA (OR = 1.74): odds un 74% **mayores** que Cuyo
+- Noreste (OR = 0.63): odds un 37% **menores**
+- Noroeste (OR = 0.43): odds un 57% **menores**
+- Pampeana (OR = 1.40): odds un 40% **mayores**
+- **Patagonia (OR = 4.79): odds casi 5 veces mayores** — diferencia regional más pronunciada
+
+**`educ_cat`:**
+
+- Secundario (OR = 1.95): odds casi el **doble** respecto de la referencia
+- **Superior (OR = 4.58): odds más de 4 veces mayores** — educación superior es el predictor individual más fuerte
+
+**`ant_laboralMas de 5 años` (OR = 2.21):** Más de 5 años de antigüedad **duplica** las odds de ingreso alto.
+
+**`formalSi`:** La formalidad laboral incrementa sustancialmente las odds de superar el umbral de ingreso (coeficiente positivo y muy significativo).
+
+**`horas_trabajo` y `ingreso_hogar`:** Efectos positivos y significativos, consistentes con la Consigna I.
+
+## Curva ROC y punto de corte óptimo (III.4)
+
+```{r roc, fig.cap="Curva ROC del modelo logístico — conjunto de entrenamiento"}
+prob_train  <- predict(mod_log, newdata = train_log, type = "response")
+y_train_num <- as.numeric(as.character(train_log$ingreso_bin))
+
+roc_obj <- roc(y_train_num, prob_train, quiet = TRUE)
+plot(roc_obj, col = "steelblue", lwd = 2,
+     main = paste("Curva ROC — AUC =", round(auc(roc_obj), 4)))
+
+cutoff_opt <- as.numeric(coords(roc_obj, x = "best",
+                                 best.method = "youden", ret = "threshold"))
+cat("AUC            :", round(auc(roc_obj), 4), "\n")
+cat("Punto de corte :", round(cutoff_opt, 4), "\n")
+```
+
+El modelo logístico alcanzó un **AUC = 0.893** en el conjunto de entrenamiento, indicando **muy buena capacidad discriminante** para diferenciar personas con ingresos altos y bajos.
+
+El punto de corte óptimo según el **índice de Youden** fue **p\* = 0.338**, sustancialmente menor al convencional de 0.5. Esto refleja el desbalanceo de clases (65% clase 0): usando un umbral más bajo, el modelo captura más verdaderos positivos a costa de algo más de falsos positivos — equilibrio adecuado para este problema.
+
+## Clasificación en test y matriz de confusión (III.5)
+
+```{r clasificacion-test}
+prob_test  <- predict(mod_log, newdata = test_log, type = "response")
+pred_class <- factor(ifelse(prob_test >= cutoff_opt, "1", "0"), levels = c("0", "1"))
+real_class <- factor(as.character(test_log$ingreso_bin),        levels = c("0", "1"))
+
+cm <- confusionMatrix(data = pred_class, reference = real_class, positive = "1")
+print(cm$table)
+```
+
+La matriz de confusión resultante sobre el conjunto de prueba fue:
+
+|  | **Real: 0** | **Real: 1** |
+|---|---|---|
+| **Predicho: 0** | 1.529 (VN) | 180 (FN) |
+| **Predicho: 1** | 471 (FP) | 882 (VP) |
+
+: Matriz de confusión — conjunto de prueba
+
+```{r metricas-clasif}
+tibble(
+  Métrica         = c("Accuracy", "Sensibilidad", "Especificidad", "VPP", "VPN"),
+  Valor           = c(
+    round(cm$overall["Accuracy"], 3),
+    round(cm$byClass["Sensitivity"], 3),
+    round(cm$byClass["Specificity"], 3),
+    round(cm$byClass["Pos Pred Value"], 3),
+    round(cm$byClass["Neg Pred Value"], 3)
+  ),
+  Interpretación  = c(
+    "Proporción de clasificaciones correctas",
+    "Prop. de ingresos altos correctamente identificados",
+    "Prop. de ingresos bajos correctamente identificados",
+    "Prob. de ingreso alto dado que el modelo lo predijo",
+    "Prob. de ingreso bajo dado que el modelo lo predijo"
+  )
+) %>%
+  kable(caption = "Métricas de clasificación en el conjunto de prueba") %>%
+  kable_styling(latex_options = c("hold_position", "striped"))
+```
+
+**Interpretación de las métricas:**
+
+- **Accuracy = 0.787:** El modelo clasifica correctamente **casi 8 de cada 10** individuos del conjunto de prueba.
+
+- **Sensibilidad = 0.831:** Identifica correctamente el **83.1% de los individuos con ingreso ≥ 1.000** (verdaderos positivos). Alta capacidad para detectar el grupo de ingresos altos.
+
+- **Especificidad = 0.764:** Clasifica correctamente el **76.4% de los individuos con ingreso < 1.000** (verdaderos negativos). Algo menor que la sensibilidad, lo que refleja el trade-off del punto de corte elegido.
+
+- **VPP = 0.652:** Entre quienes el modelo predice como ingreso alto, el **65.2% efectivamente pertenece a esa categoría**. Hay un 34.8% de falsos positivos entre los clasificados como "alto".
+
+- **VPN = 0.895:** Entre quienes el modelo predice como ingreso bajo, el **89.5% efectivamente tiene ingreso < 1.000**. Alta confiabilidad en la predicción negativa.
+
+**Conclusión general:** El modelo logístico presenta un desempeño **bueno y balanceado**. El AUC de 0.893 indica excelente discriminación. La elección del umbral de Youden (0.338) produjo un balance razonable entre sensibilidad y especificidad, con especial fortaleza para detectar correctamente a los individuos del grupo de ingresos altos.

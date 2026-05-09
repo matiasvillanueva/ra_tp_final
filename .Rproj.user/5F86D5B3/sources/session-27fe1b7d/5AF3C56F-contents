@@ -1,0 +1,464 @@
+# ==========================================================
+# TRABAJO PRACTICO FINAL - REGRESION AVANZADA
+# Script corregido y alineado con las consignas
+# Universidad Austral - 2026
+# ==========================================================
+
+# --------------------------
+# 0) LIBRERIAS
+# --------------------------
+suppressPackageStartupMessages({
+  library(readxl)
+  library(tidyverse)
+  library(MASS)
+  library(car)
+  library(lmtest)
+  library(glmnet)
+  library(caret)
+  library(pROC)
+})
+
+# --------------------------
+# 1) CARGA Y LIMPIEZA
+# --------------------------
+df <- read_excel("eph.xlsx")
+
+df <- df %>%
+  mutate(
+    ant_laboral = as.character(ant_laboral),
+    ant_laboral = ifelse(is.na(ant_laboral), "No informado", ant_laboral),
+
+    sexo = as.factor(sexo),
+    est_civil = as.factor(est_civil),
+    region = as.factor(region),
+    educ_cat = as.factor(educ_cat),
+    ant_laboral = as.factor(ant_laboral),
+    formal = as.factor(formal),
+
+    edad = as.numeric(edad),
+    horas_trabajo = as.numeric(horas_trabajo),
+    ingreso_ocup = as.numeric(ingreso_ocup),
+    ingreso_hogar = as.numeric(ingreso_hogar),
+    ingreso_per_capita = as.numeric(ingreso_per_capita)
+  ) %>%
+  drop_na(
+    sexo, edad, est_civil, region, educ_cat, ant_laboral,
+    formal, horas_trabajo, ingreso_ocup, ingreso_hogar, ingreso_per_capita
+  )
+
+# --------------------------
+# 2) FUNCIONES AUXILIARES
+# --------------------------
+press <- function(modelo) {
+  e <- resid(modelo)
+  h <- hatvalues(modelo)
+  sum((e / (1 - h))^2)
+}
+
+cme <- function(modelo) {
+  mean(resid(modelo)^2)
+}
+
+rmse <- function(obs, pred) {
+  sqrt(mean((obs - pred)^2))
+}
+
+mae <- function(obs, pred) {
+  mean(abs(obs - pred))
+}
+
+mse <- function(obs, pred) {
+  mean((obs - pred)^2)
+}
+
+# ==========================================================
+# CONSIGNA I - REGRESION LINEAL
+# ==========================================================
+
+# --------------------------
+# I.1) TRAIN / TEST 70/30
+# --------------------------
+set.seed(123)
+
+n <- nrow(df)
+idx_train <- sample(seq_len(n), size = round(0.70 * n))
+
+train <- df[idx_train, ]
+test  <- df[-idx_train, ]
+
+cat("Dimensiones train:", dim(train), "\n")
+cat("Dimensiones test :", dim(test), "\n")
+
+# --------------------------
+# I.2) TRES MODELOS MCO
+# --------------------------
+# Modelo 1: parsimonioso, guiado por criterio sustantivo.
+mod1 <- lm(
+  ingreso_ocup ~ sexo + edad + educ_cat + formal + horas_trabajo + ant_laboral,
+  data = train
+)
+
+# Modelo 2: ampliado, incorpora variables demograficas y contexto del hogar.
+mod2 <- lm(
+  ingreso_ocup ~ sexo + edad + est_civil + region + educ_cat + ant_laboral +
+    formal + horas_trabajo + ingreso_hogar,
+  data = train
+)
+
+# Modelo 3: seleccion automatica desde el modelo ampliado mediante stepAIC.
+mod3_base <- lm(
+  ingreso_ocup ~ sexo + edad + est_civil + region + educ_cat + ant_laboral +
+    formal + horas_trabajo + ingreso_hogar,
+  data = train
+)
+
+mod3 <- stepAIC(mod3_base, direction = "both", trace = FALSE)
+
+cat("\n=== RESUMENES MCO ===\n")
+print(summary(mod1))
+print(summary(mod2))
+print(summary(mod3))
+
+# --------------------------
+# I.3) COMPARACION: CME, PRESS, AIC, BIC
+# --------------------------
+comparacion_mco <- tibble(
+  Modelo = c("Modelo 1", "Modelo 2", "Modelo 3"),
+  CME = c(cme(mod1), cme(mod2), cme(mod3)),
+  PRESS = c(press(mod1), press(mod2), press(mod3)),
+  AIC = c(AIC(mod1), AIC(mod2), AIC(mod3)),
+  BIC = c(BIC(mod1), BIC(mod2), BIC(mod3))
+) %>%
+  mutate(
+    rank_CME = rank(CME, ties.method = "first"),
+    rank_PRESS = rank(PRESS, ties.method = "first"),
+    rank_AIC = rank(AIC, ties.method = "first"),
+    rank_BIC = rank(BIC, ties.method = "first"),
+    rank_total = rank_CME + rank_PRESS + rank_AIC + rank_BIC
+  ) %>%
+  arrange(rank_total)
+
+cat("\n=== COMPARACION DE MODELOS MCO ===\n")
+print(comparacion_mco)
+
+modelo_ganador_nombre <- comparacion_mco$Modelo[1]
+modelo_ganador <- switch(
+  modelo_ganador_nombre,
+  "Modelo 1" = mod1,
+  "Modelo 2" = mod2,
+  "Modelo 3" = mod3
+)
+
+cat("\nModelo ganador según desempeño conjunto:", modelo_ganador_nombre, "\n")
+cat("Formula del modelo ganador:\n")
+print(formula(modelo_ganador))
+
+# --------------------------
+# I.4) ANALISIS DE RESIDUOS Y SUPUESTOS
+# --------------------------
+cat("\n=== ANALISIS DE RESIDUOS DEL MODELO GANADOR ===\n")
+
+# Graficos diagnostico basicos
+par(mfrow = c(2, 2))
+plot(modelo_ganador)
+par(mfrow = c(1, 1))
+
+# Grafico adicional de residuos vs ajustados
+plot(
+  fitted(modelo_ganador), resid(modelo_ganador),
+  xlab = "Valores ajustados",
+  ylab = "Residuos",
+  main = "Residuos vs Ajustados"
+)
+abline(h = 0, col = "red")
+
+# Normalidad: QQ + Shapiro-Wilk
+qqnorm(resid(modelo_ganador), main = "QQ-plot residuos")
+qqline(resid(modelo_ganador), col = "red")
+
+resid_ganador <- resid(modelo_ganador)
+set.seed(123)
+resid_para_shapiro <- if (length(resid_ganador) > 5000) sample(resid_ganador, 5000) else resid_ganador
+shapiro_res <- shapiro.test(resid_para_shapiro)
+
+cat("\nTest de Shapiro-Wilk para normalidad:\n")
+print(shapiro_res)
+
+# Homocedasticidad: Breusch-Pagan
+bp_res <- bptest(modelo_ganador)
+cat("\nTest de Breusch-Pagan para homocedasticidad:\n")
+print(bp_res)
+
+# Colinealidad
+vif_res <- vif(modelo_ganador)
+cat("\nVIF del modelo ganador:\n")
+print(vif_res)
+
+# Casos atipicos e influyentes
+res_std <- rstandard(modelo_ganador)
+res_stud <- rstudent(modelo_ganador)
+lev <- hatvalues(modelo_ganador)
+cooks <- cooks.distance(modelo_ganador)
+
+umbral_leverage <- 2 * length(coef(modelo_ganador)) / nrow(train)
+umbral_cook <- 4 / nrow(train)
+
+outliers_std <- which(abs(res_std) > 3)
+outliers_stud <- which(abs(res_stud) > 3)
+altos_leverage <- which(lev > umbral_leverage)
+influyentes_cook <- which(cooks > umbral_cook)
+
+cat("\nCantidad de outliers segun |rstandard| > 3:", length(outliers_std), "\n")
+cat("Cantidad de outliers segun |rstudent| > 3 :", length(outliers_stud), "\n")
+cat("Cantidad de casos con leverage alto      :", length(altos_leverage), "\n")
+cat("Cantidad de casos influyentes por Cook   :", length(influyentes_cook), "\n")
+
+cat("\nIndices de observaciones con |rstandard| > 3:\n")
+print(outliers_std)
+cat("\nIndices de observaciones con leverage alto:\n")
+print(altos_leverage)
+cat("\nIndices de observaciones influyentes por Cook:\n")
+print(influyentes_cook)
+
+plot(cooks, type = "h", main = "Cook's distance")
+abline(h = umbral_cook, col = "red")
+
+# --------------------------
+# I.5) INTERPRETACION + TEST t
+# --------------------------
+cat("\n=== COEFICIENTES DEL MODELO GANADOR ===\n")
+coef_tab <- summary(modelo_ganador)$coefficients
+print(coef_tab)
+
+cat("\nIntervalos de confianza al 95%:\n")
+print(confint(modelo_ganador))
+
+coef_significativos <- coef_tab[coef_tab[, "Pr(>|t|)"] < 0.05, , drop = FALSE]
+cat("\nCoeficientes significativos al 5% (test t):\n")
+print(coef_significativos)
+
+# ==========================================================
+# CONSIGNA II - REGULARIZACION Y PREDICCION
+# ==========================================================
+
+# --------------------------
+# II.1 y II.2) RIDGE Y LASSO
+# --------------------------
+form_ganador <- formula(modelo_ganador)
+
+x_train <- model.matrix(form_ganador, data = train)[, -1]
+y_train <- train$ingreso_ocup
+
+x_test <- model.matrix(form_ganador, data = test)[, -1]
+y_test <- test$ingreso_ocup
+
+# MCO ganador (para comparar)
+pred_mco <- predict(modelo_ganador, newdata = test)
+
+# Ridge: alpha = 0
+set.seed(123)
+cv_ridge <- cv.glmnet(
+  x_train, y_train,
+  alpha = 0,
+  nfolds = 10,
+  standardize = TRUE
+)
+
+ridge_mod <- glmnet(
+  x_train, y_train,
+  alpha = 0,
+  lambda = cv_ridge$lambda.min,
+  standardize = TRUE
+)
+
+cat("\n=== RIDGE ===\n")
+cat("Lambda.min Ridge:", cv_ridge$lambda.min, "\n")
+cat("Lambda.1se Ridge:", cv_ridge$lambda.1se, "\n")
+print(coef(ridge_mod))
+
+# Lasso: alpha = 1
+set.seed(123)
+cv_lasso <- cv.glmnet(
+  x_train, y_train,
+  alpha = 1,
+  nfolds = 10,
+  standardize = TRUE
+)
+
+lasso_mod <- glmnet(
+  x_train, y_train,
+  alpha = 1,
+  lambda = cv_lasso$lambda.min,
+  standardize = TRUE
+)
+
+cat("\n=== LASSO ===\n")
+cat("Lambda.min Lasso:", cv_lasso$lambda.min, "\n")
+cat("Lambda.1se Lasso:", cv_lasso$lambda.1se, "\n")
+print(coef(lasso_mod))
+cat("Cantidad de coeficientes no nulos en Lasso (incluyendo intercepto):",
+    sum(coef(lasso_mod) != 0), "\n")
+
+# --------------------------
+# II.3) ERROR DE PREDICCION EN TEST
+# --------------------------
+pred_ridge <- as.numeric(predict(ridge_mod, s = cv_ridge$lambda.min, newx = x_test))
+pred_lasso <- as.numeric(predict(lasso_mod, s = cv_lasso$lambda.min, newx = x_test))
+
+resultados_pred <- tibble(
+  Modelo = c("MCO", "Ridge", "Lasso"),
+  RMSE = c(rmse(y_test, pred_mco), rmse(y_test, pred_ridge), rmse(y_test, pred_lasso)),
+  MAE  = c(mae(y_test, pred_mco), mae(y_test, pred_ridge), mae(y_test, pred_lasso)),
+  MSE  = c(mse(y_test, pred_mco), mse(y_test, pred_ridge), mse(y_test, pred_lasso))
+) %>%
+  arrange(RMSE)
+
+cat("\n=== COMPARACION PREDICTIVA EN TEST ===\n")
+print(resultados_pred)
+
+modelo_predictivo_ganador <- resultados_pred$Modelo[1]
+cat("\nModelo con mejor error predictivo (segun RMSE):", modelo_predictivo_ganador, "\n")
+
+# ==========================================================
+# CONSIGNA III - REGRESION LOGISTICA
+# ==========================================================
+
+# --------------------------
+# III.1) VARIABLE RESPUESTA BINARIA
+# --------------------------
+df_log <- df %>%
+  mutate(
+    ingreso_bin = ifelse(ingreso_ocup < 1000, 0, 1),
+    ingreso_bin = factor(ingreso_bin, levels = c(0, 1))
+  )
+
+cat("\n=== DISTRIBUCION DE ingreso_bin ===\n")
+print(table(df_log$ingreso_bin))
+print(prop.table(table(df_log$ingreso_bin)))
+
+# --------------------------
+# III.2) PARTICION BALANCEADA CON createDataPartition
+# --------------------------
+set.seed(123)
+idx_train_log <- createDataPartition(df_log$ingreso_bin, p = 0.7, list = FALSE)
+
+train_log <- df_log[idx_train_log, ]
+test_log  <- df_log[-idx_train_log, ]
+
+cat("\nProporcion de exitos en train:\n")
+print(prop.table(table(train_log$ingreso_bin)))
+cat("\nProporcion de exitos en test:\n")
+print(prop.table(table(test_log$ingreso_bin)))
+
+# --------------------------
+# III.3) MODELO LOGISTICO
+# mismas variables explicativas que el modelo ganador de Consigna I
+# --------------------------
+predictores_ganador <- attr(terms(modelo_ganador), "term.labels")
+form_log <- reformulate(predictores_ganador, response = "ingreso_bin")
+
+mod_log <- glm(
+  form_log,
+  data = train_log,
+  family = binomial(link = "logit")
+)
+
+cat("\n=== MODELO LOGISTICO ===\n")
+print(summary(mod_log))
+cat("\nConvergencia del modelo logístico:", mod_log$converged, "\n")
+
+# Odds ratios con IC Wald al 95%
+coefs_log <- coef(mod_log)
+se_log <- sqrt(diag(vcov(mod_log)))
+
+or_tab <- cbind(
+  OR = exp(coefs_log),
+  IC_inf = exp(coefs_log - 1.96 * se_log),
+  IC_sup = exp(coefs_log + 1.96 * se_log),
+  p_value = summary(mod_log)$coefficients[, 4]
+)
+
+cat("\n=== ODDS RATIOS E IC WALD ===\n")
+print(round(or_tab, 4))
+
+cat("\nOdds ratios significativas al 5%:\n")
+print(round(or_tab[or_tab[, "p_value"] < 0.05, , drop = FALSE], 4))
+
+# --------------------------
+# III.4) CURVA ROC Y PUNTO DE CORTE OPTIMO
+# --------------------------
+prob_train <- predict(mod_log, newdata = train_log, type = "response")
+y_train_num <- as.numeric(as.character(train_log$ingreso_bin))
+
+roc_obj <- roc(y_train_num, prob_train, quiet = TRUE)
+plot(roc_obj, col = "blue", main = "Curva ROC - Modelo Logistico")
+
+auc_val <- as.numeric(auc(roc_obj))
+cutoff_opt <- as.numeric(coords(
+  roc_obj,
+  x = "best",
+  best.method = "youden",
+  ret = "threshold"
+))
+
+cat("\nAUC en entrenamiento:", auc_val, "\n")
+cat("Punto de corte optimo (Youden):", cutoff_opt, "\n")
+
+# --------------------------
+# III.5) CLASIFICACION EN TEST + MATRIZ DE CONFUSION
+# --------------------------
+prob_test <- predict(mod_log, newdata = test_log, type = "response")
+
+pred_class <- ifelse(prob_test >= cutoff_opt, "1", "0")
+pred_class <- factor(pred_class, levels = c("0", "1"))
+
+real_class <- factor(as.character(test_log$ingreso_bin), levels = c("0", "1"))
+
+cm <- confusionMatrix(
+  data = pred_class,
+  reference = real_class,
+  positive = "1"
+)
+
+cat("\n=== MATRIZ DE CONFUSION ===\n")
+print(cm$table)
+
+metricas_clasif <- tibble(
+  Medida = c("Accuracy", "Precision_global", "Sensibilidad", "Especificidad", "VPP", "VPN"),
+  Valor = c(
+    unname(cm$overall["Accuracy"]),
+    unname(cm$overall["Accuracy"]),
+    unname(cm$byClass["Sensitivity"]),
+    unname(cm$byClass["Specificity"]),
+    unname(cm$byClass["Pos Pred Value"]),
+    unname(cm$byClass["Neg Pred Value"])
+  )
+)
+
+cat("\n=== METRICAS DE CLASIFICACION ===\n")
+print(metricas_clasif)
+
+# ==========================================================
+# OBJETOS FINALES UTILES PARA EL REPORTE
+# ==========================================================
+resultados_finales <- list(
+  comparacion_mco = comparacion_mco,
+  modelo_ganador_nombre = modelo_ganador_nombre,
+  formula_modelo_ganador = formula(modelo_ganador),
+  shapiro_res = shapiro_res,
+  bp_res = bp_res,
+  vif_res = vif_res,
+  coeficientes_mco = coef_tab,
+  coeficientes_significativos_mco = coef_significativos,
+  lambda_ridge_min = cv_ridge$lambda.min,
+  lambda_lasso_min = cv_lasso$lambda.min,
+  resultados_pred = resultados_pred,
+  formula_logistica = form_log,
+  odds_ratios = or_tab,
+  auc_logistico = auc_val,
+  cutoff_opt = cutoff_opt,
+  matriz_confusion = cm$table,
+  metricas_clasificacion = metricas_clasif
+)
+
+cat("\nScript ejecutado correctamente.\n")

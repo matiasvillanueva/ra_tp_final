@@ -1,0 +1,695 @@
+---
+title: "Trabajo Práctico Final — Regresión Avanzada"
+subtitle: "Maestría en Explotación de Datos y Gestión del Conocimiento · Universidad Austral · 2026"
+lang: es
+format:
+  pdf:
+    documentclass: article
+    papersize: a4
+    fontsize: 10.5pt
+    geometry:
+      - top=2cm
+      - bottom=2cm
+      - left=2.2cm
+      - right=2.2cm
+    toc: false
+    number-sections: true
+    colorlinks: true
+    highlight-style: tango
+    fig-pos: "H"
+    fig-width: 6
+    fig-height: 3.2
+    keep-tex: false
+execute:
+  echo: false
+  warning: false
+  message: false
+  eval: true
+---
+
+```{r setup, include=FALSE}
+# ============================================================
+# SETUP Y LIBRERIAS
+# ============================================================
+suppressPackageStartupMessages({
+  library(readxl)
+  library(tidyverse)
+  library(MASS)
+  library(car)
+  library(lmtest)
+  library(glmnet)
+  library(caret)
+  library(pROC)
+  library(knitr)
+  library(kableExtra)
+})
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+```{r carga-y-limpieza, include=FALSE}
+# ============================================================
+# CARGA Y LIMPIEZA
+# ============================================================
+df <- read_excel("eph.xlsx")
+
+df <- df %>%
+  mutate(
+    ant_laboral        = as.character(ant_laboral),
+    ant_laboral        = ifelse(is.na(ant_laboral), "No informado", ant_laboral),
+    sexo               = as.factor(sexo),
+    est_civil          = as.factor(est_civil),
+    region             = as.factor(region),
+    educ_cat           = as.factor(educ_cat),
+    ant_laboral        = as.factor(ant_laboral),
+    formal             = as.factor(formal),
+    edad               = as.numeric(edad),
+    horas_trabajo      = as.numeric(horas_trabajo),
+    ingreso_ocup       = as.numeric(ingreso_ocup),
+    ingreso_hogar      = as.numeric(ingreso_hogar),
+    ingreso_per_capita = as.numeric(ingreso_per_capita)
+  ) %>%
+  drop_na(sexo, edad, est_civil, region, educ_cat, ant_laboral,
+          formal, horas_trabajo, ingreso_ocup, ingreso_hogar, ingreso_per_capita)
+```
+
+```{r funciones-auxiliares, include=FALSE}
+# ============================================================
+# FUNCIONES AUXILIARES
+# ============================================================
+press <- function(modelo) {
+  e <- resid(modelo); h <- hatvalues(modelo); sum((e / (1 - h))^2)
+}
+cme  <- function(modelo) mean(resid(modelo)^2)
+rmse <- function(obs, pred) sqrt(mean((obs - pred)^2))
+mae  <- function(obs, pred) mean(abs(obs - pred))
+mse  <- function(obs, pred) mean((obs - pred)^2)
+```
+
+---
+
+# Consigna I: Regresión Lineal
+
+## Partición train/test (I.1)
+
+```{r particion, include=FALSE}
+# ============================================================
+# PARTICION TRAIN / TEST 70-30
+# ============================================================
+set.seed(123)
+n         <- nrow(df)
+idx_train <- sample(seq_len(n), size = round(0.70 * n))
+train     <- df[idx_train, ]
+test      <- df[-idx_train, ]
+```
+
+El conjunto de datos fue dividido aleatoriamente en **bloque de entrenamiento (70%, n = 7.146)** y **bloque de prueba (30%, n = 3.062)** con `set.seed(123)`. Todo el ajuste y diagnóstico se realizó sobre el conjunto de entrenamiento.
+
+## Tres modelos MCO (I.2)
+
+```{r modelos-mco, include=FALSE}
+# ============================================================
+# AJUSTE DE LOS TRES MODELOS MCO
+# ============================================================
+
+# Modelo 1: criterio sustantivo / parsimonia
+mod1 <- lm(
+  ingreso_ocup ~ sexo + edad + educ_cat + formal + horas_trabajo + ant_laboral,
+  data = train
+)
+
+# Modelo 2: modelo amplio con variables demográficas y de contexto del hogar
+mod2 <- lm(
+  ingreso_ocup ~ sexo + edad + est_civil + region + educ_cat + ant_laboral +
+                 formal + horas_trabajo + ingreso_hogar,
+  data = train
+)
+
+# Modelo 3: selección automática stepAIC bidireccional
+mod3_base <- lm(
+  ingreso_ocup ~ sexo + edad + est_civil + region + educ_cat + ant_laboral +
+                 formal + horas_trabajo + ingreso_hogar,
+  data = train
+)
+mod3 <- stepAIC(mod3_base, direction = "both", trace = FALSE)
+```
+
+Se ajustaron tres modelos de Regresión Lineal Múltiple por MCO:
+
+- **Modelo 1 — Criterio sustantivo:** Variables directamente vinculadas al ingreso individual (sexo, edad, educación, formalidad, horas trabajadas, antigüedad). Se priorizó relevancia teórica y parsimonia.
+- **Modelo 2 — Modelo amplio:** Extiende el Modelo 1 incorporando variables demográficas (estado civil), territoriales (región) e ingreso del hogar como proxy socioeconómico.
+- **Modelo 3 — stepAIC bidireccional:** Selección automática sobre el espacio del Modelo 2 (penalización AIC). El procedimiento no eliminó ninguna variable, siendo idéntico al Modelo 2.
+
+## Comparación y modelo ganador (I.3)
+
+```{r comparacion-mco, include=FALSE}
+# ============================================================
+# COMPARACION DE MODELOS: CME, PRESS, AIC, BIC
+# ============================================================
+comparacion_mco <- tibble(
+  Modelo = c("Modelo 1", "Modelo 2", "Modelo 3"),
+  CME    = c(cme(mod1), cme(mod2), cme(mod3)),
+  PRESS  = c(press(mod1), press(mod2), press(mod3)),
+  AIC    = c(AIC(mod1), AIC(mod2), AIC(mod3)),
+  BIC    = c(BIC(mod1), BIC(mod2), BIC(mod3))
+) %>%
+  mutate(
+    rank_CME   = rank(CME,   ties.method = "first"),
+    rank_PRESS = rank(PRESS, ties.method = "first"),
+    rank_AIC   = rank(AIC,   ties.method = "first"),
+    rank_BIC   = rank(BIC,   ties.method = "first"),
+    rank_total = rank_CME + rank_PRESS + rank_AIC + rank_BIC
+  ) %>%
+  arrange(rank_total)
+
+modelo_ganador_nombre <- comparacion_mco$Modelo[1]
+modelo_ganador <- switch(modelo_ganador_nombre,
+  "Modelo 1" = mod1, "Modelo 2" = mod2, "Modelo 3" = mod3)
+
+# Grafico comparativo de métricas (disponible en el script, no impreso en PDF)
+comparacion_mco_long <- comparacion_mco %>%
+  dplyr::select(Modelo, CME, PRESS, AIC, BIC) %>%
+  pivot_longer(cols = -Modelo, names_to = "Metrica", values_to = "Valor")
+
+ggplot(comparacion_mco_long, aes(x = Modelo, y = Valor, fill = Modelo)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ Metrica, scales = "free_y") +
+  labs(title = "Comparación de modelos MCO", x = "Modelo", y = "Valor de la métrica") +
+  theme_minimal()
+```
+
+```{r tabla-comparacion}
+comparacion_mco %>%
+  dplyr::select(Modelo, CME, PRESS, AIC, BIC) %>%
+  mutate(
+    CME   = format(round(CME, 0),   big.mark = "."),
+    PRESS = format(round(PRESS, 0), big.mark = "."),
+    AIC   = format(round(AIC, 0),   big.mark = "."),
+    BIC   = format(round(BIC, 0),   big.mark = ".")
+  ) %>%
+  kable(caption = "Comparación de métricas — conjunto de entrenamiento",
+        booktabs = TRUE, align = "lrrrr") %>%
+  kable_styling(latex_options = c("hold_position", "striped"), font_size = 9) %>%
+  row_spec(which(comparacion_mco$Modelo == modelo_ganador_nombre),
+           bold = TRUE, background = "#e8f5e9")
+```
+
+**Modelo ganador: Modelo 2.** Superó al Modelo 1 en las cuatro métricas. El Modelo 3 (stepAIC) resultó idéntico al Modelo 2 — la selección automática no encontró mejoras. La fórmula del modelo ganador es:
+
+$$\texttt{ingreso\_ocup} \sim \texttt{sexo + edad + est\_civil + region + educ\_cat + ant\_laboral + formal + horas\_trabajo + ingreso\_hogar}$$
+
+## Análisis de residuos y supuestos (I.4)
+
+```{r diagnosticos, include=FALSE}
+# ============================================================
+# DIAGNOSTICO COMPLETO: SUPUESTOS, COLINEALIDAD, INFLUENCIA
+# ============================================================
+
+# Gráficos 2x2 base R (disponibles en sesión, no impresos en PDF)
+par(mfrow = c(2, 2)); plot(modelo_ganador); par(mfrow = c(1, 1))
+
+# Normalidad
+resid_ganador <- resid(modelo_ganador)
+set.seed(123)
+resid_sw    <- sample(resid_ganador, min(5000, length(resid_ganador)))
+shapiro_res <- shapiro.test(resid_sw)
+
+# Histograma de residuos (no impreso)
+hist(resid(modelo_ganador), breaks = 30, main = "Histograma de residuos", xlab = "Residuos")
+
+# Homocedasticidad
+bp_res <- bptest(modelo_ganador)
+
+# VIF
+vif_res <- vif(modelo_ganador)
+
+# Gráfico de colinealidad (no impreso)
+vif_plot <- tibble(
+  Variable = names(vif_res[, ncol(vif_res)]),
+  VIF      = as.numeric(vif_res[, ncol(vif_res)])
+)
+ggplot(vif_plot, aes(x = reorder(Variable, VIF), y = VIF)) +
+  geom_col() + geom_hline(yintercept = 5, linetype = "dashed") +
+  coord_flip() + labs(title = "Indicadores de colinealidad", x = "Variable", y = "GVIF ajustado") +
+  theme_minimal()
+
+# Influencia
+res_std  <- rstandard(modelo_ganador)
+res_stud <- rstudent(modelo_ganador)
+lev      <- hatvalues(modelo_ganador)
+cooks    <- cooks.distance(modelo_ganador)
+p_mod    <- length(coef(modelo_ganador))
+n_train  <- nrow(train)
+
+umbral_leverage <- 2 * p_mod / n_train
+umbral_cook     <- 4 / n_train
+
+outliers_std     <- which(abs(res_std)  > 3)
+outliers_stud    <- which(abs(res_stud) > 3)
+altos_leverage   <- which(lev   > umbral_leverage)
+influyentes_cook <- which(cooks > umbral_cook)
+
+cat("Outliers |rstandard| > 3:", length(outliers_std), "\n")
+cat("Outliers |rstudent|  > 3:", length(outliers_stud), "\n")
+cat("Leverage alto           :", length(altos_leverage), "\n")
+cat("Influyentes por Cook    :", length(influyentes_cook), "\n")
+cat("Índices |rstandard| > 3:", outliers_std, "\n")
+cat("Índices leverage alto   :", altos_leverage, "\n")
+cat("Índices Cook influyentes:", influyentes_cook, "\n")
+```
+
+```{r plot-residuos, fig.cap="Izq: Residuos vs. ajustados. Der: QQ-plot de residuos.", fig.width=6.5, fig.height=3}
+par(mfrow = c(1, 2), mar = c(4, 4, 2, 1))
+
+plot(fitted(modelo_ganador), resid(modelo_ganador),
+     xlab = "Valores ajustados", ylab = "Residuos",
+     main = "Residuos vs. Ajustados",
+     pch = 16, cex = 0.35, col = rgb(0, 0, 0, 0.25))
+abline(h = 0, col = "red", lwd = 1.5)
+
+qqnorm(resid(modelo_ganador), main = "QQ-plot de residuos",
+       pch = 16, cex = 0.35, col = rgb(0, 0, 0, 0.25))
+qqline(resid(modelo_ganador), col = "red", lwd = 1.5)
+
+par(mfrow = c(1, 1))
+```
+
+```{r plot-cook-leverage, fig.cap="Izq: Distancia de Cook (umbral = 4/n en rojo). Der: Leverage (umbral = 2p/n en rojo).", fig.width=6.5, fig.height=2.8}
+par(mfrow = c(1, 2), mar = c(4, 4, 2, 1))
+
+plot(cooks, type = "h", ylab = "Distancia de Cook", main = "Cook's Distance",
+     col = ifelse(cooks > umbral_cook, "red", "gray60"))
+abline(h = umbral_cook, col = "red", lty = 2, lwd = 1.5)
+
+plot(lev, type = "h", ylab = "Hat values", main = "Leverage",
+     col = ifelse(lev > umbral_leverage, "red", "gray60"))
+abline(h = umbral_leverage, col = "red", lty = 2, lwd = 1.5)
+
+par(mfrow = c(1, 1))
+```
+
+**Normalidad:** Shapiro-Wilk: W = `r round(shapiro_res$statistic, 4)`, p < 2.2e-16 → se rechaza la normalidad estricta. Las colas del QQ-plot confirman desvíos. Con n > 7.000 el impacto sobre los tests es atenuado por el TCL.
+
+**Homocedasticidad:** Breusch-Pagan: BP = `r round(bp_res$statistic, 1)`, p < 2.2e-16 → heterocedasticidad confirmada. El gráfico residuos vs. ajustados muestra un patrón en embudo consistente con la distribución asimétrica de los ingresos.
+
+**Multicolinealidad:** GVIF^(1/(2·Df)) bajo en todas las variables (máximo ≈ 1.27 para `edad`). No se detectó colinealidad severa.
+
+**Observaciones problemáticas:**
+
+```{r tabla-influencia}
+tibble(
+  Criterio   = c("|Residuo estand.| > 3", "|Residuo estud.| > 3",
+                 "Leverage alto (> 2p/n)", "Cook > 4/n"),
+  `N° casos` = c(length(outliers_std), length(outliers_stud),
+                 length(altos_leverage), length(influyentes_cook))
+) %>%
+  kable(booktabs = TRUE, caption = "Resumen de observaciones problemáticas") %>%
+  kable_styling(latex_options = c("hold_position", "striped"),
+                font_size = 9, full_width = FALSE)
+```
+
+La presencia de outliers e influyentes es esperable en datos de ingresos, donde la cola derecha de salarios muy altos genera residuos grandes.
+
+## Interpretación de coeficientes y tests t (I.5)
+
+```{r coefs-internos, include=FALSE}
+# ============================================================
+# COEFICIENTES, IC Y GRAFICOS
+# ============================================================
+coef_tab <- summary(modelo_ganador)$coefficients
+confint(modelo_ganador)
+
+coef_significativos <- coef_tab[coef_tab[, "Pr(>|t|)"] < 0.05, , drop = FALSE]
+print(coef_significativos)
+
+coef_df <- as.data.frame(coef_tab) %>%
+  rownames_to_column("Termino") %>%
+  filter(Termino != "(Intercept)") %>%
+  mutate(Significativo = `Pr(>|t|)` < 0.05)
+
+# Gráfico de coeficientes (también impreso más abajo)
+ggplot(coef_df, aes(x = reorder(Termino, Estimate), y = Estimate, fill = Significativo)) +
+  geom_col() + coord_flip() +
+  labs(title = "Coeficientes estimados del modelo ganador", x = "Predictor", y = "Coeficiente") +
+  theme_minimal()
+```
+
+```{r plot-coeficientes, fig.cap="Coeficientes estimados. Verde oscuro: significativos al 5\\%.", fig.height=4.2}
+ggplot(coef_df, aes(x = reorder(Termino, Estimate), y = Estimate, fill = Significativo)) +
+  geom_col(width = 0.7) +
+  geom_hline(yintercept = 0, linewidth = 0.4) +
+  coord_flip() +
+  scale_fill_manual(values = c("TRUE" = "#2c5f2e", "FALSE" = "#aab7a8"),
+                    labels = c("TRUE" = "Sig. al 5%", "FALSE" = "No sig.")) +
+  labs(x = NULL, y = "Coeficiente estimado (miles de $)", fill = NULL) +
+  theme_minimal(base_size = 8) +
+  theme(legend.position = "bottom")
+```
+
+La interpretación se realiza manteniendo constantes las demás variables (efecto parcial):
+
+- **`sexoMujer` (β = −158, p < 0.001):** Las mujeres tienen en promedio un ingreso **$158.000 menor** que los varones. La brecha de género es el efecto más prominente del modelo.
+- **`edad` (β = 3.84, p < 0.001):** Cada año adicional de edad aumenta el ingreso esperado en **$3.840**.
+- **`est_civilsoltero` (β = −67, p < 0.001):** Los solteros presentan un ingreso esperado **$66.830 menor** que la referencia.
+- **`region`:** Respecto de Cuyo: GBA (+$111k), Pampeana (+$56k), **Patagonia (+$284k)** son las diferencias positivas; Noreste (−$61k) y Noroeste (−$117k) las negativas.
+- **`educ_cat`:** Secundario (+$114k), **Superior (+$385k)** — el mayor efecto positivo individual.
+- **`ant_laboral`:** Más de 5 años (+$77k), Menos de 1 mes (−$245k). Impacto sustancial en etapas iniciales.
+- **`formalSi` (β = +236, p < 0.001):** La formalidad laboral incrementa el ingreso esperado en **$235.870**.
+- **`horas_trabajo` (β = +9.45, p < 0.001):** Cada hora adicional trabajada suma **$9.450** al ingreso mensual esperado.
+- **`ingreso_hogar` (β = +0.13, p < 0.001):** Efecto positivo y significativo aunque de magnitud marginal baja.
+
+---
+
+# Consigna II: Regularización y Predicción
+
+## Ridge (II.1) y Lasso (II.2)
+
+```{r ridge-lasso, include=FALSE}
+# ============================================================
+# MATRICES Y AJUSTE RIDGE / LASSO CON CV
+# ============================================================
+form_ganador <- formula(modelo_ganador)
+
+x_train <- model.matrix(form_ganador, data = train)[, -1]
+y_train <- train$ingreso_ocup
+x_test  <- model.matrix(form_ganador, data = test)[, -1]
+y_test  <- test$ingreso_ocup
+
+pred_mco <- predict(modelo_ganador, newdata = test)
+
+# Ridge
+set.seed(123)
+cv_ridge  <- cv.glmnet(x_train, y_train, alpha = 0, nfolds = 10, standardize = TRUE)
+ridge_mod <- glmnet(x_train, y_train, alpha = 0,
+                    lambda = cv_ridge$lambda.min, standardize = TRUE)
+
+# Grafico CV Ridge (disponible en sesión)
+plot(cv_ridge, main = "Validacion cruzada - Ridge")
+abline(v = log(cv_ridge$lambda.min), col = "red", lty = 2)
+
+# Lasso
+set.seed(123)
+cv_lasso  <- cv.glmnet(x_train, y_train, alpha = 1, nfolds = 10, standardize = TRUE)
+lasso_mod <- glmnet(x_train, y_train, alpha = 1,
+                    lambda = cv_lasso$lambda.min, standardize = TRUE)
+
+# Grafico CV Lasso (disponible en sesión)
+plot(cv_lasso, main = "Validacion cruzada - Lasso")
+abline(v = log(cv_lasso$lambda.min), col = "red", lty = 2)
+
+# Coeficientes
+print(coef(ridge_mod))
+print(coef(lasso_mod))
+n_nulos_lasso <- sum(coef(lasso_mod) != 0)
+cat("Coeficientes no nulos Lasso:", n_nulos_lasso, "\n")
+
+# Predicciones
+pred_ridge <- as.numeric(predict(ridge_mod, s = cv_ridge$lambda.min, newx = x_test))
+pred_lasso <- as.numeric(predict(lasso_mod, s = cv_lasso$lambda.min, newx = x_test))
+
+resultados_pred <- tibble(
+  Modelo = c("MCO", "Ridge", "Lasso"),
+  RMSE   = c(rmse(y_test, pred_mco), rmse(y_test, pred_ridge), rmse(y_test, pred_lasso)),
+  MAE    = c(mae(y_test, pred_mco),  mae(y_test, pred_ridge),  mae(y_test, pred_lasso)),
+  MSE    = c(mse(y_test, pred_mco),  mse(y_test, pred_ridge),  mse(y_test, pred_lasso))
+) %>% arrange(RMSE)
+
+modelo_predictivo_ganador <- resultados_pred$Modelo[1]
+pred_best <- switch(modelo_predictivo_ganador,
+  "MCO" = pred_mco, "Ridge" = pred_ridge, "Lasso" = pred_lasso)
+
+# Grafico comparativo métricas (disponible en sesión)
+resultados_pred_long <- resultados_pred %>%
+  pivot_longer(cols = c(RMSE, MAE, MSE), names_to = "Metrica", values_to = "Valor")
+ggplot(resultados_pred_long, aes(x = Modelo, y = Valor, fill = Modelo)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ Metrica, scales = "free_y") +
+  labs(title = "Desempeño predictivo en test", x = "Modelo", y = "Error") +
+  theme_minimal()
+```
+
+**Ridge** (α = 0) fue ajustado con λ seleccionado por CV k-fold (10 folds): **λ_opt = `r round(cv_ridge$lambda.min, 2)`**. Contrae todos los coeficientes hacia cero sin eliminar variables — reduce varianza a cambio de introducir sesgo. Los signos se mantienen iguales a MCO.
+
+**Lasso** (α = 1) fue ajustado con **λ_opt = `r round(cv_lasso$lambda.min, 4)`**. A diferencia de Ridge, llevó algunos coeficientes exactamente a cero (ej. `educ_catPrimario`, `ant_laboral1 a 5 años`), reteniendo **`r n_nulos_lasso` coeficientes no nulos** — modelo más parsimonioso que MCO.
+
+## Performance predictiva en test (II.3)
+
+```{r tabla-pred}
+resultados_pred %>%
+  mutate(across(where(is.numeric), ~round(., 1))) %>%
+  kable(caption = "Error de predicción en el conjunto de prueba (miles de \\$)",
+        booktabs = TRUE) %>%
+  kable_styling(latex_options = c("hold_position", "striped"),
+                font_size = 9, full_width = FALSE) %>%
+  row_spec(1, bold = TRUE, background = "#e8f5e9")
+```
+
+```{r plot-obs-pred, fig.cap="Observados vs. predichos en el conjunto de prueba — Modelo Ridge.", fig.height=2.8}
+ggplot(tibble(Observado = y_test, Predicho = pred_best),
+       aes(x = Observado, y = Predicho)) +
+  geom_point(alpha = 0.22, size = 0.55, color = "steelblue") +
+  geom_abline(slope = 1, intercept = 0, color = "red", linewidth = 0.8) +
+  labs(x = "Ingreso observado (miles de $)", y = "Ingreso predicho (miles de $)") +
+  theme_minimal(base_size = 9)
+```
+
+**Ridge** obtuvo el menor RMSE (`r round(min(resultados_pred$RMSE), 1)`) y MSE en el conjunto de prueba. Las diferencias son pequeñas — los tres modelos predicen con error típico ≈ $491.000. **Para predicción** se recomienda Ridge; **para inferencia e interpretación**, MCO sigue siendo preferible.
+
+---
+
+# Consigna III: Regresión Logística
+
+## Variable binaria y partición (III.1–III.2)
+
+```{r logistica-setup, include=FALSE}
+# ============================================================
+# VARIABLE BINARIA, DISTRIBUCION Y PARTICION BALANCEADA
+# ============================================================
+df_log <- df %>%
+  mutate(
+    ingreso_bin = ifelse(ingreso_ocup < 1000, 0, 1),
+    ingreso_bin = factor(ingreso_bin, levels = c(0, 1))
+  )
+
+# Distribución
+cat("\n=== DISTRIBUCION DE ingreso_bin ===\n")
+print(table(df_log$ingreso_bin))
+print(prop.table(table(df_log$ingreso_bin)))
+
+# Gráfico de distribución (disponible en sesión)
+ggplot(df_log, aes(x = ingreso_bin, fill = ingreso_bin)) +
+  geom_bar(show.legend = FALSE) +
+  labs(title = "Distribución de la variable binaria ingreso_bin",
+       x = "ingreso_bin", y = "Frecuencia") +
+  theme_minimal()
+
+# Partición balanceada
+set.seed(123)
+idx_train_log <- createDataPartition(df_log$ingreso_bin, p = 0.7, list = FALSE)
+train_log     <- df_log[idx_train_log, ]
+test_log      <- df_log[-idx_train_log, ]
+
+cat("\nProporción clase 1 en train:", round(mean(train_log$ingreso_bin == 1), 4), "\n")
+cat("Proporción clase 1 en test :", round(mean(test_log$ingreso_bin  == 1), 4), "\n")
+```
+
+Se definió `ingreso_bin = 1` si `ingreso_ocup ≥ 1.000`, y 0 en caso contrario. Distribución: **clase 0: 65.32% (n = 6.668)** y **clase 1: 34.68% (n = 3.540)**. Se usó `createDataPartition()` para preservar la proporción en ambas particiones (train: 34.68%, test: 34.68%).
+
+## Modelo logístico y odds ratios (III.3)
+
+```{r modelo-logistico, include=FALSE}
+# ============================================================
+# AJUSTE DEL MODELO LOGISTICO
+# ============================================================
+predictores_ganador <- attr(terms(modelo_ganador), "term.labels")
+form_log <- reformulate(predictores_ganador, response = "ingreso_bin")
+
+mod_log <- glm(form_log, data = train_log, family = binomial(link = "logit"))
+
+cat("\n=== MODELO LOGISTICO ===\n")
+print(summary(mod_log))
+cat("\nConvergencia:", mod_log$converged, "\n")
+
+coefs_log <- coef(mod_log)
+se_log    <- sqrt(diag(vcov(mod_log)))
+
+or_tab <- cbind(
+  OR     = exp(coefs_log),
+  IC_inf = exp(coefs_log - 1.96 * se_log),
+  IC_sup = exp(coefs_log + 1.96 * se_log),
+  p_val  = summary(mod_log)$coefficients[, 4]
+)
+
+cat("\n=== ODDS RATIOS E IC WALD ===\n")
+print(round(or_tab, 4))
+
+or_sig <- as.data.frame(or_tab) %>%
+  rownames_to_column("Termino") %>%
+  filter(Termino != "(Intercept)", p_val < 0.05) %>%
+  mutate(across(c(OR, IC_inf, IC_sup), ~round(., 3)),
+         p_val = round(p_val, 4))
+
+# Gráfico de odds ratios significativas (también impreso más abajo)
+ggplot(or_sig, aes(x = reorder(Termino, OR), y = OR)) +
+  geom_col() + geom_hline(yintercept = 1, linetype = "dashed") +
+  coord_flip() + labs(title = "Odds ratios significativas", x = "Predictor", y = "OR") +
+  theme_minimal()
+```
+
+Se ajustó un modelo logístico con las mismas variables que el modelo ganador. Convergió correctamente (warning de probabilidades extremas en algunos casos extremos — esperable con ingresos muy altos o bajos).
+
+```{r plot-or, fig.cap="Odds ratios significativas al 5\\% con IC al 95\\%. Línea roja punteada = OR = 1.", fig.height=3.8}
+ggplot(or_sig, aes(x = reorder(Termino, OR), y = OR)) +
+  geom_col(fill = "#2c5f2e", width = 0.65) +
+  geom_errorbar(aes(ymin = IC_inf, ymax = IC_sup), width = 0.25, color = "gray30") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "red", linewidth = 0.7) +
+  coord_flip() +
+  labs(x = NULL, y = "Odds Ratio (IC 95%)") +
+  theme_minimal(base_size = 8)
+```
+
+**Interpretación de las odds ratios significativas** (manteniendo constantes las demás variables):
+
+- **`sexoMujer` (OR = 0.46):** Las mujeres tienen odds de ingreso alto **54% menores** que los varones.
+- **`edad` (OR = 1.02):** Cada año de edad adicional incrementa las odds un **2%**.
+- **`est_civilsoltero` (OR = 0.72):** Los solteros tienen odds un **28% menores** que la referencia.
+- **`region`:** GBA (OR = 1.74, +74%), Pampeana (OR = 1.40, +40%), **Patagonia (OR = 4.79, casi 5×)** vs. Cuyo. Noreste (OR = 0.63, −37%) y Noroeste (OR = 0.43, −57%) con menores probabilidades.
+- **`educ_cat`:** Secundario (OR = 1.95), **Superior (OR = 4.58, más de 4×)** — el predictor con mayor OR positivo.
+- **`ant_laboralMas de 5 años` (OR = 2.21):** Duplica las odds respecto de la referencia.
+- **`formalSi`:** Coeficiente positivo y altamente significativo — la formalidad incrementa sustancialmente las probabilidades de ingreso alto.
+- **`horas_trabajo` e `ingreso_hogar`:** Efectos positivos y significativos, consistentes con Consigna I.
+
+## Curva ROC y punto de corte óptimo (III.4)
+
+```{r roc-internos, include=FALSE}
+# ============================================================
+# ROC, AUC Y PUNTO DE CORTE (YOUDEN)
+# ============================================================
+prob_train  <- predict(mod_log, newdata = train_log, type = "response")
+y_train_num <- as.numeric(as.character(train_log$ingreso_bin))
+
+roc_obj    <- roc(y_train_num, prob_train, quiet = TRUE)
+auc_val    <- as.numeric(auc(roc_obj))
+cutoff_opt <- as.numeric(coords(roc_obj, x = "best",
+                                 best.method = "youden", ret = "threshold"))
+
+cat("\nAUC en entrenamiento:", auc_val, "\n")
+cat("Punto de corte optimo (Youden):", cutoff_opt, "\n")
+
+# Gráfico de distribución de probabilidades predichas (disponible en sesión)
+prob_train_df <- tibble(prob = prob_train, real = train_log$ingreso_bin)
+ggplot(prob_train_df, aes(x = prob, fill = real)) +
+  geom_histogram(position = "identity", alpha = 0.5, bins = 30) +
+  geom_vline(xintercept = cutoff_opt, linetype = "dashed", color = "red") +
+  labs(title = "Distribución de probabilidades predichas",
+       x = "Probabilidad estimada", y = "Frecuencia", fill = "Clase real") +
+  theme_minimal()
+```
+
+```{r plot-roc, fig.cap=paste0("Curva ROC sobre el conjunto de entrenamiento. AUC = ", round(auc_val, 4), ". Punto de corte óptimo (Youden) = ", round(cutoff_opt, 4), "."), fig.height=2.9}
+plot(roc_obj, col = "steelblue", lwd = 2,
+     main = paste("Curva ROC — AUC =", round(auc_val, 4)),
+     cex.main = 0.9, cex.axis = 0.8, cex.lab = 0.8)
+```
+
+**AUC = `r round(auc_val, 4)`** — muy buena capacidad discriminante. El punto de corte óptimo según **Youden** fue **p\* = `r round(cutoff_opt, 4)`**, menor al convencional 0.5 por el desbalanceo de clases (65% negativos), maximizando sensibilidad + especificidad.
+
+## Clasificación en test y matriz de confusión (III.5)
+
+```{r clasificacion-test, include=FALSE}
+# ============================================================
+# CLASIFICACION EN TEST, MATRIZ DE CONFUSION Y METRICAS
+# ============================================================
+prob_test  <- predict(mod_log, newdata = test_log, type = "response")
+pred_class <- factor(ifelse(prob_test >= cutoff_opt, "1", "0"), levels = c("0", "1"))
+real_class <- factor(as.character(test_log$ingreso_bin), levels = c("0", "1"))
+
+cm <- confusionMatrix(data = pred_class, reference = real_class, positive = "1")
+
+cat("\n=== MATRIZ DE CONFUSION ===\n")
+print(cm$table)
+
+metricas_clasif <- tibble(
+  Medida = c("Accuracy", "Precision_global", "Sensibilidad", "Especificidad", "VPP", "VPN"),
+  Valor = c(
+    unname(cm$overall["Accuracy"]),
+    unname(cm$overall["Accuracy"]),
+    unname(cm$byClass["Sensitivity"]),
+    unname(cm$byClass["Specificity"]),
+    unname(cm$byClass["Pos Pred Value"]),
+    unname(cm$byClass["Neg Pred Value"])
+  )
+)
+
+cat("\n=== METRICAS DE CLASIFICACION ===\n")
+print(metricas_clasif)
+```
+
+```{r plot-confusion, fig.cap="Heatmap de la matriz de confusión — conjunto de prueba.", fig.height=2.5}
+cm_df <- as.data.frame(cm$table)
+colnames(cm_df) <- c("Predicho", "Real", "Frecuencia")
+
+ggplot(cm_df, aes(x = Real, y = Predicho, fill = Frecuencia)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Frecuencia), color = "white", size = 5.5, fontface = "bold") +
+  scale_fill_gradient(low = "#90caf9", high = "#1565c0") +
+  labs(x = "Clase real", y = "Clase predicha", fill = "N") +
+  theme_minimal(base_size = 9) +
+  theme(legend.position = "right")
+```
+
+```{r tabla-metricas}
+tibble(
+  Métrica = c("Accuracy", "Sensibilidad", "Especificidad", "VPP", "VPN"),
+  Valor   = round(c(
+    cm$overall["Accuracy"],
+    cm$byClass["Sensitivity"],
+    cm$byClass["Specificity"],
+    cm$byClass["Pos Pred Value"],
+    cm$byClass["Neg Pred Value"]
+  ), 3),
+  Interpretación = c(
+    "Prop. de clasificaciones correctas sobre el total",
+    "Prop. de ingresos altos (≥1000) correctamente detectados",
+    "Prop. de ingresos bajos (<1000) correctamente detectados",
+    "Prob. de ingreso alto dado que el modelo lo predijo como alto",
+    "Prob. de ingreso bajo dado que el modelo lo predijo como bajo"
+  )
+) %>%
+  kable(booktabs = TRUE, caption = "Métricas de clasificación en el conjunto de prueba") %>%
+  kable_styling(latex_options = c("hold_position", "striped"), font_size = 9)
+```
+
+- **Accuracy = `r round(cm$overall["Accuracy"], 3)`:** Cerca de **8 de cada 10** individuos clasificados correctamente.
+- **Sensibilidad = `r round(cm$byClass["Sensitivity"], 3)`:** El `r round(cm$byClass["Sensitivity"]*100, 1)`% de los individuos con ingreso ≥ 1.000 son correctamente detectados — alta capacidad para identificar el grupo de interés.
+- **Especificidad = `r round(cm$byClass["Specificity"], 3)`:** El `r round(cm$byClass["Specificity"]*100, 1)`% de los individuos con ingreso bajo son correctamente clasificados.
+- **VPP = `r round(cm$byClass["Pos Pred Value"], 3)`:** De quienes el modelo predice como ingreso alto, el `r round(cm$byClass["Pos Pred Value"]*100, 1)`% efectivamente lo son.
+- **VPN = `r round(cm$byClass["Neg Pred Value"], 3)`:** De quienes el modelo predice como ingreso bajo, el `r round(cm$byClass["Neg Pred Value"]*100, 1)`% efectivamente lo son — alta fiabilidad en la predicción negativa.
+
+El modelo logístico presenta desempeño **bueno y balanceado**, con especial fortaleza para detectar el grupo de ingresos altos. El AUC de `r round(auc_val, 3)` confirma excelente capacidad discriminante global.
+
+```{r objetos-finales, include=FALSE}
+# ============================================================
+# OBJETOS FINALES PARA REFERENCIA
+# ============================================================
+resultados_finales <- list(
+  comparacion_mco             = comparacion_mco,
+  modelo_ganador_nombre       = modelo_ganador_nombre,
+  formula_modelo_ganador      = formula(modelo_ganador),
+  shapiro_res                 = shapiro_res,
+  bp_res                      = bp_res,
+  vif_res                     = vif_res,
+  coeficientes_mco            = coef_tab,
+  coeficientes_significativos = coef_significativos,
+  lambda_ridge_min            = cv_ridge$lambda.min,
+  lambda_lasso_min            = cv_lasso$lambda.min,
+  resultados_pred             = resultados_pred,
+  formula_logistica           = form_log,
+  odds_ratios                 = or_tab,
+  auc_logistico               = auc_val,
+  cutoff_opt                  = cutoff_opt,
+  matriz_confusion            = cm$table,
+  metricas_clasificacion      = metricas_clasif
+)
+
+cat("\nScript ejecutado correctamente.\n")
+```

@@ -1,0 +1,656 @@
+---
+title: "Trabajo Práctico Final - Regresión Avanzada"
+author: "Matias Villanueva"
+format:
+  pdf:
+    documentclass: article
+    toc: false
+    number-sections: true
+    geometry:
+      - margin=2.2cm
+    fontsize: 11pt
+execute:
+  echo: true
+  warning: false
+  message: false
+editor: visual
+lang: es
+---
+
+{r}
+#| label: setup
+#| include: false
+
+suppressPackageStartupMessages({
+  library(readxl)
+  library(tidyverse)
+  library(MASS)
+  library(car)
+  library(lmtest)
+  library(glmnet)
+  library(caret)
+  library(pROC)
+  library(knitr)
+})
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 8,
+  fig.height = 5,
+  fig.align = "center"
+)
+
+# --------------------------
+# 1) CARGA Y LIMPIEZA
+# --------------------------
+df <- read_excel("eph.xlsx")
+
+df <- df %>%
+  mutate(
+    ant_laboral = as.character(ant_laboral),
+    ant_laboral = ifelse(is.na(ant_laboral), "No informado", ant_laboral),
+
+    sexo = as.factor(sexo),
+    est_civil = as.factor(est_civil),
+    region = as.factor(region),
+    educ_cat = as.factor(educ_cat),
+    ant_laboral = as.factor(ant_laboral),
+    formal = as.factor(formal),
+
+    edad = as.numeric(edad),
+    horas_trabajo = as.numeric(horas_trabajo),
+    ingreso_ocup = as.numeric(ingreso_ocup),
+    ingreso_hogar = as.numeric(ingreso_hogar),
+    ingreso_per_capita = as.numeric(ingreso_per_capita)
+  ) %>%
+  drop_na(
+    sexo, edad, est_civil, region, educ_cat, ant_laboral,
+    formal, horas_trabajo, ingreso_ocup, ingreso_hogar, ingreso_per_capita
+  )
+
+# --------------------------
+# 2) FUNCIONES AUXILIARES
+# --------------------------
+press <- function(modelo) {
+  e <- resid(modelo)
+  h <- hatvalues(modelo)
+  sum((e / (1 - h))^2)
+}
+
+cme <- function(modelo) {
+  mean(resid(modelo)^2)
+}
+
+rmse <- function(obs, pred) {
+  sqrt(mean((obs - pred)^2))
+}
+
+mae <- function(obs, pred) {
+  mean(abs(obs - pred))
+}
+
+mse <- function(obs, pred) {
+  mean((obs - pred)^2)
+}
+
+# ==========================================================
+# CONSIGNA I - REGRESION LINEAL
+# ==========================================================
+
+set.seed(123)
+
+n <- nrow(df)
+idx_train <- sample(seq_len(n), size = round(0.70 * n))
+
+train <- df[idx_train, ]
+test  <- df[-idx_train, ]
+
+mod1 <- lm(
+  ingreso_ocup ~ sexo + edad + educ_cat + formal + horas_trabajo + ant_laboral,
+  data = train
+)
+
+mod2 <- lm(
+  ingreso_ocup ~ sexo + edad + est_civil + region + educ_cat + ant_laboral +
+    formal + horas_trabajo + ingreso_hogar,
+  data = train
+)
+
+mod3_base <- lm(
+  ingreso_ocup ~ sexo + edad + est_civil + region + educ_cat + ant_laboral +
+    formal + horas_trabajo + ingreso_hogar,
+  data = train
+)
+
+mod3 <- stepAIC(mod3_base, direction = "both", trace = FALSE)
+
+comparacion_mco <- tibble(
+  Modelo = c("Modelo 1", "Modelo 2", "Modelo 3"),
+  CME = c(cme(mod1), cme(mod2), cme(mod3)),
+  PRESS = c(press(mod1), press(mod2), press(mod3)),
+  AIC = c(AIC(mod1), AIC(mod2), AIC(mod3)),
+  BIC = c(BIC(mod1), BIC(mod2), BIC(mod3))
+) %>%
+  mutate(
+    rank_CME = rank(CME, ties.method = "first"),
+    rank_PRESS = rank(PRESS, ties.method = "first"),
+    rank_AIC = rank(AIC, ties.method = "first"),
+    rank_BIC = rank(BIC, ties.method = "first"),
+    rank_total = rank_CME + rank_PRESS + rank_AIC + rank_BIC
+  ) %>%
+  arrange(rank_total)
+
+modelo_ganador_nombre <- comparacion_mco$Modelo[1]
+modelo_ganador <- switch(
+  modelo_ganador_nombre,
+  "Modelo 1" = mod1,
+  "Modelo 2" = mod2,
+  "Modelo 3" = mod3
+)
+
+resid_ganador <- resid(modelo_ganador)
+set.seed(123)
+resid_para_shapiro <- if (length(resid_ganador) > 5000) sample(resid_ganador, 5000) else resid_ganador
+shapiro_res <- shapiro.test(resid_para_shapiro)
+bp_res <- bptest(modelo_ganador)
+vif_res <- vif(modelo_ganador)
+
+res_std <- rstandard(modelo_ganador)
+res_stud <- rstudent(modelo_ganador)
+lev <- hatvalues(modelo_ganador)
+cooks <- cooks.distance(modelo_ganador)
+
+umbral_leverage <- 2 * length(coef(modelo_ganador)) / nrow(train)
+umbral_cook <- 4 / nrow(train)
+
+outliers_std <- which(abs(res_std) > 3)
+outliers_stud <- which(abs(res_stud) > 3)
+altos_leverage <- which(lev > umbral_leverage)
+influyentes_cook <- which(cooks > umbral_cook)
+
+coef_tab <- summary(modelo_ganador)$coefficients
+coef_significativos <- coef_tab[coef_tab[, "Pr(>|t|)"] < 0.05, , drop = FALSE]
+
+comparacion_mco_red <- comparacion_mco %>%
+  select(Modelo, CME, PRESS, AIC, BIC)
+
+# ==========================================================
+# CONSIGNA II - REGULARIZACION Y PREDICCION
+# ==========================================================
+
+form_ganador <- formula(modelo_ganador)
+
+x_train <- model.matrix(form_ganador, data = train)[, -1]
+y_train <- train$ingreso_ocup
+
+x_test <- model.matrix(form_ganador, data = test)[, -1]
+y_test <- test$ingreso_ocup
+
+pred_mco <- predict(modelo_ganador, newdata = test)
+
+set.seed(123)
+cv_ridge <- cv.glmnet(
+  x_train, y_train,
+  alpha = 0,
+  nfolds = 10,
+  standardize = TRUE
+)
+
+ridge_mod <- glmnet(
+  x_train, y_train,
+  alpha = 0,
+  lambda = cv_ridge$lambda.min,
+  standardize = TRUE
+)
+
+set.seed(123)
+cv_lasso <- cv.glmnet(
+  x_train, y_train,
+  alpha = 1,
+  nfolds = 10,
+  standardize = TRUE
+)
+
+lasso_mod <- glmnet(
+  x_train, y_train,
+  alpha = 1,
+  lambda = cv_lasso$lambda.min,
+  standardize = TRUE
+)
+
+pred_ridge <- as.numeric(predict(ridge_mod, s = cv_ridge$lambda.min, newx = x_test))
+pred_lasso <- as.numeric(predict(lasso_mod, s = cv_lasso$lambda.min, newx = x_test))
+
+resultados_pred <- tibble(
+  Modelo = c("MCO", "Ridge", "Lasso"),
+  RMSE = c(rmse(y_test, pred_mco), rmse(y_test, pred_ridge), rmse(y_test, pred_lasso)),
+  MAE  = c(mae(y_test, pred_mco), mae(y_test, pred_ridge), mae(y_test, pred_lasso)),
+  MSE  = c(mse(y_test, pred_mco), mse(y_test, pred_ridge), mse(y_test, pred_lasso))
+) %>%
+  arrange(RMSE)
+
+modelo_predictivo_ganador <- resultados_pred$Modelo[1]
+
+# ==========================================================
+# CONSIGNA III - REGRESION LOGISTICA
+# ==========================================================
+
+df_log <- df %>%
+  mutate(
+    ingreso_bin = ifelse(ingreso_ocup < 1000, 0, 1),
+    ingreso_bin = factor(ingreso_bin, levels = c(0, 1))
+  )
+
+set.seed(123)
+idx_train_log <- createDataPartition(df_log$ingreso_bin, p = 0.7, list = FALSE)
+
+train_log <- df_log[idx_train_log, ]
+test_log  <- df_log[-idx_train_log, ]
+
+predictores_ganador <- attr(terms(modelo_ganador), "term.labels")
+form_log <- reformulate(predictores_ganador, response = "ingreso_bin")
+
+mod_log <- glm(
+  form_log,
+  data = train_log,
+  family = binomial(link = "logit")
+)
+
+coefs_log <- coef(mod_log)
+se_log <- sqrt(diag(vcov(mod_log)))
+
+or_tab <- cbind(
+  OR = exp(coefs_log),
+  IC_inf = exp(coefs_log - 1.96 * se_log),
+  IC_sup = exp(coefs_log + 1.96 * se_log),
+  p_value = summary(mod_log)$coefficients[, 4]
+)
+
+prob_train <- predict(mod_log, newdata = train_log, type = "response")
+y_train_num <- as.numeric(as.character(train_log$ingreso_bin))
+
+roc_obj <- roc(y_train_num, prob_train, quiet = TRUE)
+auc_val <- as.numeric(auc(roc_obj))
+cutoff_opt <- as.numeric(coords(
+  roc_obj,
+  x = "best",
+  best.method = "youden",
+  ret = "threshold"
+))
+
+prob_test <- predict(mod_log, newdata = test_log, type = "response")
+
+pred_class <- ifelse(prob_test >= cutoff_opt, "1", "0")
+pred_class <- factor(pred_class, levels = c("0", "1"))
+
+real_class <- factor(as.character(test_log$ingreso_bin), levels = c("0", "1"))
+
+cm <- confusionMatrix(
+  data = pred_class,
+  reference = real_class,
+  positive = "1"
+)
+
+metricas_clasif <- tibble(
+  Medida = c("Accuracy", "Precision_global", "Sensibilidad", "Especificidad", "VPP", "VPN"),
+  Valor = c(
+    unname(cm$overall["Accuracy"]),
+    unname(cm$overall["Accuracy"]),
+    unname(cm$byClass["Sensitivity"]),
+    unname(cm$byClass["Specificity"]),
+    unname(cm$byClass["Pos Pred Value"]),
+    unname(cm$byClass["Neg Pred Value"])
+  )
+)
+
+Trabajo Práctico Final
+
+Este reporte responde cada una de las consignas del trabajo práctico. En cada apartado se muestra primero el código utilizado y luego la interpretación de los resultados obtenidos.
+
+Consigna I: Regresión Lineal
+
+I.1) Partición entrenamiento / prueba
+
+{r}
+set.seed(123)
+
+n <- nrow(df)
+idx_train <- sample(seq_len(n), size = round(0.70 * n))
+
+train <- df[idx_train, ]
+test  <- df[-idx_train, ]
+
+dim(train)
+dim(test)
+
+Se dividió aleatoriamente la base en un bloque de entrenamiento del 70% y un bloque de prueba del 30%, utilizando set.seed(123) para garantizar la reproducibilidad. El conjunto de entrenamiento quedó conformado por r nrow(train) observaciones y el conjunto de prueba por r nrow(test) observaciones. Esta partición cumple con lo solicitado en la consigna.
+
+I.2) Ajuste de tres modelos MCO
+
+{r}
+mod1 <- lm(
+  ingreso_ocup ~ sexo + edad + educ_cat + formal + horas_trabajo + ant_laboral,
+  data = train
+)
+
+mod2 <- lm(
+  ingreso_ocup ~ sexo + edad + est_civil + region + educ_cat + ant_laboral +
+    formal + horas_trabajo + ingreso_hogar,
+  data = train
+)
+
+mod3_base <- lm(
+  ingreso_ocup ~ sexo + edad + est_civil + region + educ_cat + ant_laboral +
+    formal + horas_trabajo + ingreso_hogar,
+  data = train
+)
+
+mod3 <- stepAIC(mod3_base, direction = "both", trace = FALSE)
+
+formula(mod1)
+formula(mod2)
+formula(mod3)
+
+Se ajustaron tres modelos de regresión lineal múltiple por MCO con ingreso_ocup como variable respuesta.
+
+El Modelo 1 fue definido con un criterio sustantivo y parsimonioso, incluyendo variables individuales directamente vinculadas al ingreso laboral: sexo, edad, nivel educativo, formalidad, horas trabajadas y antigüedad laboral.
+
+El Modelo 2 amplía el enfoque anterior incorporando estado civil, región e ingreso del hogar, con el objetivo de capturar mejor las diferencias sociodemográficas y del contexto económico del hogar.
+
+El Modelo 3 surge de aplicar un procedimiento automático de selección bidireccional mediante stepAIC() sobre el modelo amplio. De esta forma, se cumplen tres estrategias de construcción distintas: criterio propio, modelo ampliado y selección automática por AIC.
+
+I.3) Comparación entre modelos
+
+{r}
+comparacion_mco_red
+
+{r}
+comparacion_mco %>%
+  ggplot(aes(x = Modelo, y = CME, fill = Modelo)) +
+  geom_col(show.legend = FALSE) +
+  labs(title = "Comparación de CME", x = "Modelo", y = "CME") +
+  theme_minimal()
+
+{r}
+comparacion_mco %>%
+  ggplot(aes(x = Modelo, y = PRESS, fill = Modelo)) +
+  geom_col(show.legend = FALSE) +
+  labs(title = "Comparación de PRESS", x = "Modelo", y = "PRESS") +
+  theme_minimal()
+
+{r}
+comparacion_mco %>%
+  ggplot(aes(x = Modelo, y = AIC, fill = Modelo)) +
+  geom_col(show.legend = FALSE) +
+  labs(title = "Comparación de AIC", x = "Modelo", y = "AIC") +
+  theme_minimal()
+
+{r}
+comparacion_mco %>%
+  ggplot(aes(x = Modelo, y = BIC, fill = Modelo)) +
+  geom_col(show.legend = FALSE) +
+  labs(title = "Comparación de BIC", x = "Modelo", y = "BIC") +
+  theme_minimal()
+
+La comparación mediante CME, PRESS, AIC y BIC muestra que el modelo ganador es r modelo_ganador_nombre. En este caso, el procedimiento automático no mejoró al modelo amplio, por lo que el modelo seleccionado coincide con la formulación más completa considerada. En consecuencia, el modelo ganador queda definido por:
+
+r paste(deparse(formula(modelo_ganador)), collapse = " ")
+
+I.4) Análisis de residuos, supuestos y observaciones influyentes
+
+{r}
+par(mfrow = c(2, 2))
+plot(modelo_ganador)
+par(mfrow = c(1, 1))
+
+{r}
+shapiro_res
+bp_res
+
+{r}
+vif_res
+
+{r}
+cat("Cantidad de outliers según |rstandard| > 3:", length(outliers_std), "\n")
+cat("Cantidad de outliers según |rstudent| > 3 :", length(outliers_stud), "\n")
+cat("Cantidad de casos con leverage alto      :", length(altos_leverage), "\n")
+cat("Cantidad de casos influyentes por Cook   :", length(influyentes_cook), "\n")
+
+{r}
+plot(cooks, type = "h", main = "Cook's distance")
+abline(h = umbral_cook, col = "red")
+
+{r}
+plot(lev, type = "h", main = "Leverage", ylab = "Hat values")
+abline(h = umbral_leverage, col = "red")
+
+Sobre el modelo ganador se realizó un análisis de residuos para evaluar cumplimiento de supuestos, colinealidad y presencia de casos atípicos o influyentes.
+
+El test de Shapiro-Wilk arrojó un valor p de r format(shapiro_res$p.value, scientific = TRUE), por lo que se rechaza la hipótesis nula de normalidad estricta de los residuos. Dado el gran tamaño muestral, este resultado no sorprende y debe interpretarse junto con los gráficos diagnósticos.
+
+El test de Breusch-Pagan presentó un valor p de r format(bp_res$p.value, scientific = TRUE), lo que indica evidencia de heterocedasticidad. Por lo tanto, la varianza de los residuos no se mantiene constante.
+
+En relación con la colinealidad, los valores de VIF/GVIF ajustados no muestran problemas severos, por lo que no se detecta multicolinealidad preocupante entre los predictores.
+
+Además, se identificaron r length(outliers_std) observaciones con residuos estandarizados mayores a 3 en valor absoluto, r length(altos_leverage) casos con leverage alto y r length(influyentes_cook) observaciones influyentes según la distancia de Cook. En síntesis, el modelo presenta capacidad explicativa razonable, aunque no cumple estrictamente todos los supuestos clásicos.
+
+I.5) Interpretación de coeficientes y significación estadística
+
+{r}
+coef_tab
+
+{r}
+coef_significativos
+
+{r}
+coef_df <- as.data.frame(coef_tab) %>%
+  rownames_to_column("Termino") %>%
+  filter(Termino != "(Intercept)") %>%
+  mutate(Significativo = `Pr(>|t|)` < 0.05)
+
+ggplot(coef_df, aes(x = reorder(Termino, Estimate), y = Estimate, fill = Significativo)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Coeficientes estimados del modelo ganador",
+    x = "Predictor",
+    y = "Coeficiente"
+  ) +
+  theme_minimal()
+
+El test t indica que varios predictores resultan estadísticamente significativos al 5%. En términos sustantivos, el modelo sugiere que la formalidad laboral, las horas trabajadas, el ingreso del hogar y los mayores niveles educativos se asocian positivamente con el ingreso laboral mensual. También aparecen diferencias por sexo, edad, estado civil, región y antigüedad laboral.
+
+Por ejemplo, el coeficiente estimado para formalSi mide cuánto cambia el ingreso mensual esperado, en promedio, al pasar de una ocupación informal a una formal, manteniendo constantes las demás variables. Del mismo modo, el coeficiente de horas_trabajo representa el cambio esperado en el ingreso por cada hora adicional trabajada durante la semana anterior. La significación estadística observada refuerza que estas variables tienen un papel importante en la explicación de ingreso_ocup.
+
+Consigna II: Regularización y Predicción
+
+II.1) Ajuste Ridge
+
+{r}
+cv_ridge$lambda.min
+cv_ridge$lambda.1se
+coef(ridge_mod)
+
+{r}
+plot(cv_ridge, main = "Validación cruzada - Ridge")
+abline(v = log(cv_ridge$lambda.min), col = "red", lty = 2)
+
+Se ajustó el modelo ganador mediante Ridge, seleccionando el parámetro de penalización por validación cruzada de 10 folds. El valor óptimo obtenido fue r round(cv_ridge$lambda.min, 4).
+
+En comparación con MCO, Ridge conserva todos los predictores, pero contrae los coeficientes hacia cero. Esto reduce varianza y puede mejorar la capacidad predictiva fuera de muestra, especialmente cuando existe cierta redundancia entre variables explicativas.
+
+II.2) Ajuste Lasso
+
+{r}
+cv_lasso$lambda.min
+cv_lasso$lambda.1se
+coef(lasso_mod)
+sum(coef(lasso_mod) != 0)
+
+{r}
+plot(cv_lasso, main = "Validación cruzada - Lasso")
+abline(v = log(cv_lasso$lambda.min), col = "red", lty = 2)
+
+Se ajustó el modelo ganador mediante Lasso, también con validación cruzada de 10 folds. El valor óptimo de penalización fue r round(cv_lasso$lambda.min, 4).
+
+A diferencia de Ridge, Lasso no solo contrae coeficientes, sino que además puede anular algunos y generar un modelo más parsimonioso. En este caso, el número de coeficientes no nulos, incluyendo el intercepto, fue r sum(coef(lasso_mod) != 0).
+
+II.3) Comparación predictiva en test
+
+{r}
+resultados_pred
+
+{r}
+resultados_pred %>%
+  pivot_longer(cols = c(RMSE, MAE, MSE), names_to = "Metrica", values_to = "Valor") %>%
+  ggplot(aes(x = Modelo, y = Valor, fill = Modelo)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ Metrica, scales = "free_y") +
+  labs(
+    title = "Desempeño predictivo en test",
+    x = "Modelo",
+    y = "Error"
+  ) +
+  theme_minimal()
+
+{r}
+pred_best <- switch(
+  modelo_predictivo_ganador,
+  "MCO" = pred_mco,
+  "Ridge" = pred_ridge,
+  "Lasso" = pred_lasso
+)
+
+ggplot(tibble(Observado = y_test, Predicho = pred_best), aes(x = Observado, y = Predicho)) +
+  geom_point(alpha = 0.4) +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  labs(
+    title = paste("Observado vs Predicho -", modelo_predictivo_ganador),
+    x = "Ingreso observado",
+    y = "Ingreso predicho"
+  ) +
+  theme_minimal()
+
+La capacidad predictiva se evaluó sobre el conjunto de prueba mediante RMSE, MAE y MSE. El modelo con mejor desempeño fue r modelo_predictivo_ganador, ya que obtuvo el menor error de predicción.
+
+En consecuencia, si el objetivo principal fuera la predicción fuera de muestra, este sería el modelo más conveniente. En cambio, si el interés principal fuera la interpretación económica de los efectos, el modelo MCO seguiría siendo útil por la lectura directa de sus coeficientes y la disponibilidad de tests clásicos.
+
+Consigna III: Regresión Logística
+
+III.1) Definición de la variable binaria
+
+{r}
+table(df_log$ingreso_bin)
+prop.table(table(df_log$ingreso_bin))
+
+{r}
+ggplot(df_log, aes(x = ingreso_bin, fill = ingreso_bin)) +
+  geom_bar(show.legend = FALSE) +
+  labs(
+    title = "Distribución de la variable binaria ingreso_bin",
+    x = "ingreso_bin",
+    y = "Frecuencia"
+  ) +
+  theme_minimal()
+
+Se definió la variable binaria ingreso_bin, tomando valor 0 cuando ingreso_ocup < 1000 y valor 1 cuando ingreso_ocup >= 1000. La distribución observada muestra que la clase 0 representa r round(100 * prop.table(table(df_log$ingreso_bin))[1], 2)% de los casos, mientras que la clase 1 concentra r round(100 * prop.table(table(df_log$ingreso_bin))[2], 2)%.
+
+III.2) Partición balanceada con createDataPartition()
+
+{r}
+prop.table(table(train_log$ingreso_bin))
+prop.table(table(test_log$ingreso_bin))
+
+Se utilizó createDataPartition() del paquete caret para construir particiones balanceadas de entrenamiento y prueba. La proporción de éxitos quedó preservada en ambos subconjuntos, lo cual cumple exactamente con lo solicitado en la consigna.
+
+III.3) Ajuste del modelo logístico e interpretación de odds ratios
+
+{r}
+summary(mod_log)
+
+{r}
+round(or_tab, 4)
+
+{r}
+or_df <- as.data.frame(or_tab) %>%
+  rownames_to_column("Termino") %>%
+  filter(Termino != "(Intercept)", p_value < 0.05)
+
+ggplot(or_df, aes(x = reorder(Termino, OR), y = OR)) +
+  geom_col() +
+  geom_hline(yintercept = 1, linetype = "dashed") +
+  coord_flip() +
+  labs(
+    title = "Odds ratios significativas del modelo logístico",
+    x = "Predictor",
+    y = "Odds ratio"
+  ) +
+  theme_minimal()
+
+Se ajustó un modelo de regresión logística binaria con las mismas variables explicativas que el modelo ganador de la Consigna I. A partir de los coeficientes estimados se calcularon las razones de odds.
+
+Una odds ratio mayor que 1 indica que el predictor incrementa las chances de pertenecer al grupo con ingreso_ocup >= 1000, mientras que una odds ratio menor que 1 indica una disminución de esas chances. Entre las variables significativas, la formalidad laboral, la educación superior, algunas regiones y una mayor cantidad de horas trabajadas aparecen asociadas a una mayor probabilidad de superar el umbral de ingreso fijado.
+
+III.4) Curva ROC y punto de corte óptimo
+
+{r}
+plot(roc_obj, col = "blue", main = "Curva ROC - Modelo Logístico")
+
+{r}
+auc_val
+cutoff_opt
+
+{r}
+prob_train_df <- tibble(
+  prob = prob_train,
+  real = train_log$ingreso_bin
+)
+
+ggplot(prob_train_df, aes(x = prob, fill = real)) +
+  geom_histogram(position = "identity", alpha = 0.5, bins = 30) +
+  geom_vline(xintercept = cutoff_opt, linetype = "dashed", color = "red") +
+  labs(
+    title = "Distribución de probabilidades predichas",
+    x = "Probabilidad estimada",
+    y = "Frecuencia",
+    fill = "Clase real"
+  ) +
+  theme_minimal()
+
+El área bajo la curva ROC fue r round(auc_val, 4), lo cual indica una muy buena capacidad discriminante del modelo. El punto de corte óptimo obtenido mediante el criterio de Youden fue r round(cutoff_opt, 4).
+
+Esto implica que, para clasificar individuos en el conjunto de prueba, resulta más conveniente usar ese umbral que el valor arbitrario 0.5, ya que permite equilibrar mejor sensibilidad y especificidad.
+
+III.5) Clasificación final y matriz de confusión
+
+{r}
+cm$table
+
+{r}
+metricas_clasif
+
+{r}
+cm_df <- as.data.frame(cm$table)
+colnames(cm_df) <- c("Predicho", "Real", "Frecuencia")
+
+ggplot(cm_df, aes(x = Real, y = Predicho, fill = Frecuencia)) +
+  geom_tile() +
+  geom_text(aes(label = Frecuencia), color = "white", size = 5) +
+  labs(
+    title = "Matriz de confusión",
+    x = "Clase real",
+    y = "Clase predicha"
+  ) +
+  theme_minimal()
+
+Utilizando el punto de corte óptimo obtenido por ROC, se clasificaron los individuos del conjunto de prueba y se construyó la matriz de confusión correspondiente.
+
+La accuracy observada fue r round(metricas_clasif$Valor[metricas_clasif$Medida == "Accuracy"], 4), la sensibilidad fue r round(metricas_clasif$Valor[metricas_clasif$Medida == "Sensibilidad"], 4), la especificidad fue r round(metricas_clasif$Valor[metricas_clasif$Medida == "Especificidad"], 4), el VPP fue r round(metricas_clasif$Valor[metricas_clasif$Medida == "VPP"], 4) y el VPN fue r round(metricas_clasif$Valor[metricas_clasif$Medida == "VPN"], 4).
+
+En conjunto, estos resultados indican que el modelo logístico presenta un desempeño bueno y relativamente balanceado para distinguir entre individuos con ingresos laborales por debajo y por encima del umbral considerado.
+
+Observación final
+
+Para compilar este archivo a PDF, el archivo eph.xlsx debe estar ubicado en la misma carpeta que este .qmd. Si se desea reducir la extensión final del PDF, se puede ocultar alguno de los gráficos diagnósticos menos importantes cambiando opciones de chunk como echo: false o fig.show: 'hide'.
